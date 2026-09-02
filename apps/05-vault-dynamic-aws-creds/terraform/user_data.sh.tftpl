@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+
+VAULT_ADDRESS="${vault_address}"
+VAULT_NAMESPACE="${vault_namespace}"
+VAULT_ROLE="${vault_role}"
+AWS_ROLE_PATH="${aws_role_path}"
+
+dnf install -y python3 python3-pip
+pip3 install hvac flask boto3
+
+mkdir -p /opt/vault-dynamic-aws
+
+cat > /etc/systemd/system/vault-dynamic-aws.service << 'SVC'
+[Unit]
+Description=Vault Dynamic AWS Creds Demo
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/vault-dynamic-aws
+Environment=VAULT_ADDR=__VAULT_ADDR__
+Environment=VAULT_NAMESPACE=__VAULT_NAMESPACE__
+Environment=VAULT_ROLE=__VAULT_ROLE__
+Environment=AWS_ROLE_PATH=__AWS_ROLE_PATH__
+Environment=VAULT_AWS_BACKEND=aws/dynamic/vault-dynamic-aws
+ExecStart=/usr/bin/python3 /opt/vault-dynamic-aws/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g"       /etc/systemd/system/vault-dynamic-aws.service
+sed -i "s|__VAULT_NAMESPACE__|$VAULT_NAMESPACE|g" /etc/systemd/system/vault-dynamic-aws.service
+sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g"           /etc/systemd/system/vault-dynamic-aws.service
+sed -i "s|__AWS_ROLE_PATH__|$AWS_ROLE_PATH|g"     /etc/systemd/system/vault-dynamic-aws.service
+
+systemctl daemon-reload
+systemctl enable --now vault-dynamic-aws

@@ -1,0 +1,42 @@
+# Reference manifest — Terraform manages this resource.
+# Annotations trigger Vault Agent Injector to populate /vault/secrets/config.json
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-vault-node
+  namespace: hello-vault
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello-vault-node
+  template:
+    metadata:
+      labels:
+        app: hello-vault-node
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-secret-config.json: "apps/vault-eks-k8s-auth/data/config"
+        vault.hashicorp.com/agent-inject-template-config.json: |
+          {{- with secret "apps/vault-eks-k8s-auth/data/config" -}}
+          {{ .Data.data | toJSON }}
+          {{- end }}
+        vault.hashicorp.com/role: "hello-vault-node"
+        vault.hashicorp.com/auth-path: "auth/kubernetes/vault-eks-k8s-auth"
+    spec:
+      serviceAccountName: hello-vault
+      containers:
+        - name: hello-vault-node
+          image: your-registry/hello-vault-node:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SECRET_FILE
+              value: /vault/secrets/config.json
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

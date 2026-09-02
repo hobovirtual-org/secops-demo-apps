@@ -1,0 +1,60 @@
+name: Terraform
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: "fmt + validate (${{ matrix.app }})"
+    runs-on: ubuntu-latest
+    env:
+      TF_INPUT: "false"
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - _shared/vault-aws-auth
+          - _shared/vault-kv-secret
+          - apps/01-hello-vault-python-ec2/terraform
+          - apps/02-hello-vault-go-ec2/terraform
+          - apps/03-hello-vault-node-ec2/terraform
+          - apps/04-hello-vault-java-ec2/terraform
+          - apps/05-vault-dynamic-aws-creds/terraform
+          - apps/06-vault-eks-k8s-auth/terraform
+          - apps/07-mern-vault/terraform
+          - stacks/eks-vault-stack
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Format Check
+        working-directory: ${{ matrix.app }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        working-directory: ${{ matrix.app }}
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: ${{ matrix.app }}
+        env:
+          TF_VAR_project_name: "ci"
+          TF_VAR_aws_region: "us-east-1"
+          TF_VAR_environment: "dev"
+          TF_VAR_ami_owner_account_id: "123456789012"
+          TF_VAR_existing_key_pair_name: "ci-key"
+          TF_VAR_allowed_cidr_blocks: '["0.0.0.0/0"]'
+          TF_VAR_vault_address: "https://vault.example.com"
+          TF_VAR_vault_namespace: "admin"
+          TF_VAR_route53_zone_name: "example.com"
+          TF_VAR_route53_zone_id: "ZXXXXXXXXXXXXX"
+        run: terraform validate

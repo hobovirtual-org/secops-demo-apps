@@ -1,0 +1,91 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/_shared/vault-aws-auth"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/_shared/vault-kv-secret"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/01-hello-vault-python-ec2/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/02-hello-vault-go-ec2/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/03-hello-vault-node-ec2/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/04-hello-vault-java-ec2/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/05-vault-dynamic-aws-creds/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/06-vault-eks-k8s-auth/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/apps/07-mern-vault/terraform"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: "/stacks/eks-vault-stack"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/apps/03-hello-vault-node-ec2/app"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/apps/07-mern-vault/app/frontend"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/apps/07-mern-vault/app/backend"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: "/apps/01-hello-vault-python-ec2/app"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: "/apps/05-vault-dynamic-aws-creds/app"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: gomod
+    directory: "/apps/02-hello-vault-go-ec2/app"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: maven
+    directory: "/apps/04-hello-vault-java-ec2/app"
+    schedule:
+      interval: weekly

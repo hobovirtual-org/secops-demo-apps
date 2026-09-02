@@ -1,0 +1,43 @@
+#!/bin/bash
+set -euo pipefail
+
+VAULT_ADDRESS="${vault_address}"
+VAULT_NAMESPACE="${vault_namespace}"
+VAULT_ROLE="${vault_role}"
+
+dnf install -y java-21-openjdk-headless maven
+
+mkdir -p /opt/hello-vault-java
+# The Spring Boot fat jar is deployed out-of-band (e.g. via CodeDeploy or S3 copy)
+# This script just sets up the systemd service with correct env
+
+cat > /etc/systemd/system/hello-vault-java.service << 'SVC'
+[Unit]
+Description=Hello Vault Java Spring Boot App
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/hello-vault-java
+Environment=VAULT_ADDR=__VAULT_ADDR__
+Environment=VAULT_NAMESPACE=__VAULT_NAMESPACE__
+Environment=VAULT_ROLE=__VAULT_ROLE__
+Environment=SECRET_PATH=config
+Environment=MOUNT_POINT=apps/hello-vault-java
+Environment=SERVER_PORT=8080
+Environment=SERVER_ADDRESS=127.0.0.1
+ExecStart=/usr/bin/java -jar /opt/hello-vault-java/hello-vault.jar
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g"        /etc/systemd/system/hello-vault-java.service
+sed -i "s|__VAULT_NAMESPACE__|$VAULT_NAMESPACE|g"  /etc/systemd/system/hello-vault-java.service
+sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g"            /etc/systemd/system/hello-vault-java.service
+
+systemctl daemon-reload
+systemctl enable hello-vault-java

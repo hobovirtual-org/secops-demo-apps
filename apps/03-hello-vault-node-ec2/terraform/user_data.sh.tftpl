@@ -1,0 +1,94 @@
+#!/bin/bash
+set -euo pipefail
+
+VAULT_ADDRESS="${vault_address}"
+VAULT_NAMESPACE="${vault_namespace}"
+VAULT_ROLE="${vault_role}"
+
+dnf install -y nodejs npm
+
+mkdir -p /opt/hello-vault-node
+cat > /opt/hello-vault-node/package.json << 'PKG'
+{
+  "name": "hello-vault-node",
+  "version": "1.0.0",
+  "main": "app.js",
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-vault": "^0.10.2",
+    "aws-sdk": "^2.1692.0"
+  }
+}
+PKG
+
+cat > /opt/hello-vault-node/app.js << 'JSAPP'
+'use strict';
+const express = require('express');
+const vault   = require('node-vault');
+const AWS     = require('aws-sdk');
+
+const app = express();
+
+const VAULT_ADDR  = process.env.VAULT_ADDR;
+const VAULT_NS    = process.env.VAULT_NAMESPACE || '';
+const VAULT_ROLE  = process.env.VAULT_ROLE;
+const MOUNT_POINT = process.env.MOUNT_POINT || 'secret';
+const SECRET_PATH = process.env.SECRET_PATH  || 'config';
+
+async function getSecret() {
+  const sts    = new AWS.STS();
+  const caller = await sts.getCallerIdentity().promise();
+
+  const client = vault({ endpoint: VAULT_ADDR, namespace: VAULT_NS });
+  await client.awsIamLogin({ role: VAULT_ROLE, iam_request_url: 'aHR0cHM6Ly9zdHMuYW1hem9uYXdzLmNvbS8=' });
+
+  const res = await client.read(`$${MOUNT_POINT}/data/$${SECRET_PATH}`);
+  return res.data.data;
+}
+
+app.get('/', async (req, res) => {
+  try {
+    const data = await getSecret();
+    res.json({ status: 'ok', greeting: data.greeting, db_username: data.db_username });
+  } catch (err) {
+    console.error('ERROR:', err.message);
+    res.status(500).json({ status: 'error' });
+  }
+});
+
+app.get('/health', (req, res) => res.json({ status: 'healthy' }));
+
+const port = process.env.PORT || 8080;
+app.listen(port, '127.0.0.1', () => console.log(`Listening on 127.0.0.1:$${port}`));
+JSAPP
+
+cd /opt/hello-vault-node && npm install --production
+
+cat > /etc/systemd/system/hello-vault-node.service << 'SVC'
+[Unit]
+Description=Hello Vault Node.js App
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/hello-vault-node
+Environment=VAULT_ADDR=__VAULT_ADDR__
+Environment=VAULT_NAMESPACE=__VAULT_NAMESPACE__
+Environment=VAULT_ROLE=__VAULT_ROLE__
+Environment=SECRET_PATH=config
+Environment=MOUNT_POINT=apps/hello-vault-node
+ExecStart=/usr/bin/node app.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g"   /etc/systemd/system/hello-vault-node.service
+sed -i "s|__VAULT_NAMESPACE__|$VAULT_NAMESPACE|g" /etc/systemd/system/hello-vault-node.service
+sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g"      /etc/systemd/system/hello-vault-node.service
+
+systemctl daemon-reload
+systemctl enable --now hello-vault-node

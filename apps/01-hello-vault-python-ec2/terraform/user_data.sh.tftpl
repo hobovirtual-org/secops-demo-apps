@@ -1,0 +1,85 @@
+#!/bin/bash
+set -euo pipefail
+
+VAULT_ADDRESS="${vault_address}"
+VAULT_NAMESPACE="${vault_namespace}"
+VAULT_ROLE="${vault_role}"
+SECRET_PATH="${secret_path}"
+
+# ── Install dependencies ──────────────────────────────────────────────────
+dnf install -y python3 python3-pip
+pip3 install hvac flask
+
+# ── Write the app ─────────────────────────────────────────────────────────
+mkdir -p /opt/hello-vault
+cat > /opt/hello-vault/app.py << 'PYTHON'
+import os, hvac, boto3, json
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+def get_vault_token():
+    """Authenticate to Vault using AWS IAM auth."""
+    client = hvac.Client(
+        url=os.environ["VAULT_ADDR"],
+        namespace=os.environ.get("VAULT_NAMESPACE", ""),
+    )
+    sts = boto3.client("sts")
+    signed = sts.generate_presigned_url("get_caller_identity", ExpiresIn=60)
+    client.auth.aws.iam_login(
+        role=os.environ["VAULT_ROLE"],
+        use_token=True,
+    )
+    return client
+
+@app.route("/")
+def index():
+    client = get_vault_token()
+    secret = client.secrets.kv.v2.read_secret_version(
+        path=os.environ["SECRET_PATH"],
+        mount_point=os.environ["MOUNT_POINT"],
+    )
+    data = secret["data"]["data"]
+    return jsonify({
+        "status": "ok",
+        "greeting": data.get("greeting"),
+        "db_username": data.get("db_username"),
+    })
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy"})
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8080)
+PYTHON
+
+# ── systemd service ───────────────────────────────────────────────────────
+cat > /etc/systemd/system/hello-vault.service << 'SVC'
+[Unit]
+Description=Hello Vault Python App
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/hello-vault
+Environment=VAULT_ADDR=__VAULT_ADDR__
+Environment=VAULT_NAMESPACE=__VAULT_NAMESPACE__
+Environment=VAULT_ROLE=__VAULT_ROLE__
+Environment=SECRET_PATH=config
+Environment=MOUNT_POINT=apps/hello-vault-python
+ExecStart=/usr/bin/python3 /opt/hello-vault/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g" /etc/systemd/system/hello-vault.service
+sed -i "s|__VAULT_NAMESPACE__|$VAULT_NAMESPACE|g" /etc/systemd/system/hello-vault.service
+sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g" /etc/systemd/system/hello-vault.service
+
+systemctl daemon-reload
+systemctl enable --now hello-vault

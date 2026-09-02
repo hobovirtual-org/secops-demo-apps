@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in — never commit terraform.tfvars
+project_name           = "demo"
+environment            = "dev"
+aws_region             = "us-east-1"
+ami_owner_account_id   = "123456789012"
+existing_key_pair_name = "my-keypair"
+allowed_cidr_blocks    = ["x.x.x.x/32"]
+vault_address          = "https://vault.example.com"
+vault_namespace        = "admin"
