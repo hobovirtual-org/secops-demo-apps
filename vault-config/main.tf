@@ -6,16 +6,17 @@
 # Pattern (zero stored tokens for app workspaces):
 #   HCP Terraform run → signed JWT → Vault JWT auth → short-lived token (scoped policy)
 #
-# This workspace itself uses a static admin VAULT_TOKEN (injected via env var).
-# It is the only workspace with direct Vault admin access.
+# This workspace authenticates to Vault via JWT dynamic credentials
+# (TFC_VAULT_PROVIDER_AUTH=true). No stored token anywhere in the system.
 #
 # Run order (enforced by workspace dependency in platform-control-workspace):
 #   demo-apps-vault-config  →  demo-app-01  →  demo-app-02  →  …
 #
-# Prerequisites (one-time, bootstrapped via platform-engineering-workshop):
-#   vault write auth/jwt/config \
-#     oidc_discovery_url="https://app.terraform.io" \
-#     bound_issuer="https://app.terraform.io"
+# One-time bootstrap (already done via CLI):
+#   vault auth enable -path=jwt jwt
+#   vault write auth/jwt/config oidc_discovery_url="https://app.terraform.io" bound_issuer="https://app.terraform.io"
+#   vault policy write demo-apps-vault-config-provisioner <policy>
+#   vault write auth/jwt/role/demo-apps-vault-config bound_claims={org,workspace} ...
 
 # ── JWT auth backend (pre-existing, read-only reference) ─────────────────────
 data "vault_auth_backend" "jwt" {

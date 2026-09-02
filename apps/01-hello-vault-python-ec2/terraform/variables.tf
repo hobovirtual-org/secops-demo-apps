@@ -47,9 +47,9 @@ variable "vault_address" {
 }
 
 variable "vault_namespace" {
-  description = "Vault namespace (use 'admin' for HCP Vault)."
+  description = "Vault namespace. Empty string for self-managed Vault (root namespace). Use 'admin' for HCP Vault Dedicated."
   type        = string
-  default     = "admin"
+  default     = ""
 }
 
 variable "route53_zone_name" {
