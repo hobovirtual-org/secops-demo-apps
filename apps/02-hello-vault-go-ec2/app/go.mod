@@ -3,7 +3,7 @@ module hello-vault-go
 go 1.24.0
 
 require (
-	github.com/hashicorp/vault/api v1.22.0
+	github.com/hashicorp/vault/api v1.23.0
 	github.com/hashicorp/vault/api/auth/aws v0.12.0
 )
 
