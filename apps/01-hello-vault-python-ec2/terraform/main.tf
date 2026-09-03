@@ -184,7 +184,8 @@ resource "aws_instance" "app" {
     delete_on_termination = true
   }
 
-  user_data = local.user_data
+  user_data                   = local.user_data
+  user_data_replace_on_change = true
 
   tags = { Name = "${local.name_prefix}-ec2" }
 }
