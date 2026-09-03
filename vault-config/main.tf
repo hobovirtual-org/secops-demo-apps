@@ -23,6 +23,21 @@ data "vault_auth_backend" "jwt" {
   path = "jwt"
 }
 
+# ── AWS auth backend (singleton — shared by all EC2 app workspaces) ──────────
+# Owned here so individual app workspaces don't race to create it.
+# App workspaces reference it via data "vault_auth_backend" "aws" in the
+# _shared/vault-aws-auth module.
+resource "vault_auth_backend" "aws" {
+  type        = "aws"
+  path        = "aws"
+  description = "AWS IAM auth — shared by all EC2 demo apps"
+}
+
+resource "vault_aws_auth_backend_client" "main" {
+  backend = vault_auth_backend.aws.path
+  # Vault uses its own EC2 instance profile to call STS — no static keys needed.
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # App 01 — hello-vault-python (EC2)
 # ─────────────────────────────────────────────────────────────────────────────

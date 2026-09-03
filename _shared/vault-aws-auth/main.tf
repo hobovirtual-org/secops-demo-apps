@@ -1,28 +1,18 @@
 # ---------------------------------------------------------------------------
 # Vault AWS auth method + per-app role
 #
-# This module:
-#   1. Enables the AWS auth method at the given path (idempotent).
-#   2. Creates a named role that binds an EC2 IAM instance profile ARN
-#      (or IAM role ARN for IAM-type auth) to a Vault policy.
+# The AWS auth backend is a singleton — it is enabled once at the Vault level
+# by demo-apps-vault-config (or manually during bootstrap).  Each app workspace
+# uses this module only to create its own IAM role; it references the
+# pre-existing backend via a data source rather than trying to re-create it.
 # ---------------------------------------------------------------------------
 
-resource "vault_auth_backend" "aws" {
-  type = "aws"
+data "vault_auth_backend" "aws" {
   path = var.auth_path
-
-  description = "AWS auth method for ${var.app_name}"
-}
-
-resource "vault_aws_auth_backend_client" "main" {
-  backend = vault_auth_backend.aws.path
-
-  # Vault will use the Vault server's own IAM role to call the AWS STS API.
-  # Leave access_key / secret_key empty so Vault uses its instance profile.
 }
 
 resource "vault_aws_auth_backend_role" "app" {
-  backend   = vault_auth_backend.aws.path
+  backend   = data.vault_auth_backend.aws.path
   role      = var.role_name
   auth_type = var.auth_type
 

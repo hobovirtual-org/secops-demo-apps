@@ -1,6 +1,6 @@
 output "auth_path" {
   description = "Mount path of the AWS auth backend."
-  value       = vault_auth_backend.aws.path
+  value       = data.vault_auth_backend.aws.path
 }
 
 output "role_name" {
