@@ -14,8 +14,18 @@ output "ssh_command" {
 }
 
 output "app_url" {
-  description = "Application HTTP endpoint."
+  description = "Application HTTP endpoint (dns-based)."
+  value       = "http://${var.fqdn}:8080"
+}
+
+output "app_url_ip" {
+  description = "Application HTTP endpoint (direct IP fallback)."
   value       = "http://${aws_instance.app.public_ip}:8080"
+}
+
+output "dns_record" {
+  description = "Route53 A record FQDN."
+  value       = aws_route53_record.app.fqdn
 }
 
 output "vault_role" {
