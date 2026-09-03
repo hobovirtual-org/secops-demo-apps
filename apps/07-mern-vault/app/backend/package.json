@@ -10,7 +10,7 @@
   "dependencies": {
     "cors": "2.8.6",
     "express": "4.21.2",
-    "mongoose": "8.14.3"
+    "mongoose": "9.9.4"
   },
   "engines": {
     "node": ">=20"
