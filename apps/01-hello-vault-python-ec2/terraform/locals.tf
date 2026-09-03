@@ -9,5 +9,6 @@ locals {
     vault_namespace = var.vault_namespace
     vault_role      = module.vault_aws_auth.role_name
     secret_path     = module.vault_secret.secret_path
+    aws_region      = var.aws_region
   })
 }

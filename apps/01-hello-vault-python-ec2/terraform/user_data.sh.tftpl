@@ -1,10 +1,11 @@
 #!/bin/bash
-set -uo pipefail
+set -euo pipefail
 
 VAULT_ADDRESS="${vault_address}"
 VAULT_NAMESPACE="${vault_namespace}"
 VAULT_ROLE="${vault_role}"
 SECRET_PATH="${secret_path}"
+AWS_REGION="${aws_region}"
 
 # ── Swap space (prevents OOM-kill of dnf on small instances) ─────────────
 if [ ! -f /swapfile ]; then
@@ -14,11 +15,16 @@ if [ ! -f /swapfile ]; then
   swapon /swapfile
 fi
 
-# ── Install dependencies ──────────────────────────────────────────────────
-# python3 ships with RHEL9 AMIs; only pip is needed.
-dnf install -y python3-pip
-# --break-system-packages required on RHEL9's externally-managed Python.
-pip3 install --break-system-packages hvac flask boto3
+# ── Install Python venv support ───────────────────────────────────────────
+# python3 ships with RHEL9; python3-pip + venv are all we need.
+# Using a venv avoids both PEP-668 externally-managed errors and
+# user-vs-system install path problems with different service users.
+dnf install -y python3-pip python3-virtualenv
+
+# ── Create venv and install app dependencies ──────────────────────────────
+python3 -m venv /opt/hello-vault-venv
+/opt/hello-vault-venv/bin/pip install --upgrade pip
+/opt/hello-vault-venv/bin/pip install hvac flask boto3
 
 # ── Write the app ─────────────────────────────────────────────────────────
 mkdir -p /opt/hello-vault
@@ -32,12 +38,19 @@ app = Flask(__name__)
 
 def get_vault_client():
     """Authenticate to Vault using AWS IAM auth and return an authenticated client."""
+    import boto3
+    session = boto3.Session()
+    creds = session.get_credentials().get_frozen_credentials()
     client = hvac.Client(
         url=os.environ["VAULT_ADDR"],
         namespace=os.environ.get("VAULT_NAMESPACE") or None,
     )
     client.auth.aws.iam_login(
+        access_key=creds.access_key,
+        secret_key=creds.secret_key,
+        session_token=creds.token,
         role=os.environ["VAULT_ROLE"],
+        region=os.environ.get("AWS_REGION", "us-east-1"),
     )
     return client
 
@@ -83,7 +96,8 @@ Environment=VAULT_NAMESPACE=__VAULT_NAMESPACE__
 Environment=VAULT_ROLE=__VAULT_ROLE__
 Environment=SECRET_PATH=config
 Environment=MOUNT_POINT=apps/hello-vault-python
-ExecStart=/usr/bin/python3 /opt/hello-vault/app.py
+Environment=AWS_REGION=__AWS_REGION__
+ExecStart=/opt/hello-vault-venv/bin/python3 /opt/hello-vault/app.py
 Restart=on-failure
 RestartSec=5
 
@@ -94,6 +108,7 @@ SVC
 sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g" /etc/systemd/system/hello-vault.service
 sed -i "s|__VAULT_NAMESPACE__|$VAULT_NAMESPACE|g" /etc/systemd/system/hello-vault.service
 sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g" /etc/systemd/system/hello-vault.service
+sed -i "s|__AWS_REGION__|$AWS_REGION|g" /etc/systemd/system/hello-vault.service
 
 systemctl daemon-reload
 systemctl enable --now hello-vault
