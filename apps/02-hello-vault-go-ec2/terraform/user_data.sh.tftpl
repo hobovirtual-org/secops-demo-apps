@@ -116,11 +116,14 @@ GOAPP
 
 # ── Build the binary ──────────────────────────────────────────────────────
 cd /opt/hello-vault-go
-go mod init hello-vault-go
+go mod init hello-vault-go 2>/dev/null || true
 go get github.com/hashicorp/vault/api@v1.23.0
 go get github.com/hashicorp/vault/api/auth/aws@v0.12.0
 go mod tidy
 go build -o hello-vault-go .
+
+# Fix SELinux context so systemd (User=nobody) can execute the binary
+restorecon -v hello-vault-go || chcon -t bin_t hello-vault-go || true
 
 # ── systemd service ───────────────────────────────────────────────────────
 cat > /etc/systemd/system/hello-vault-go.service << 'SVC'
