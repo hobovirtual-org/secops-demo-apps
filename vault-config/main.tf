@@ -72,14 +72,14 @@ resource "vault_jwt_auth_backend_role" "demo_app_01" {
   token_ttl      = 900 # 15 minutes — one run window
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-01"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-01:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
 
@@ -125,14 +125,14 @@ resource "vault_jwt_auth_backend_role" "demo_app_02" {
   token_ttl      = 900
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-02"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-02:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
 
@@ -178,14 +178,14 @@ resource "vault_jwt_auth_backend_role" "demo_app_03" {
   token_ttl      = 900
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-03"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-03:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
 
@@ -231,14 +231,14 @@ resource "vault_jwt_auth_backend_role" "demo_app_04" {
   token_ttl      = 900
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-04"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-04:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
 
@@ -291,14 +291,14 @@ resource "vault_jwt_auth_backend_role" "demo_app_05" {
   token_ttl      = 900
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-05"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-05:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
 
@@ -344,14 +344,14 @@ resource "vault_jwt_auth_backend_role" "demo_app_06" {
   token_ttl      = 900
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-06"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-06:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
 
@@ -397,13 +397,13 @@ resource "vault_jwt_auth_backend_role" "demo_app_07" {
   token_ttl      = 900
   token_max_ttl  = 900
 
-  bound_audiences = ["vault.workload.identity"]
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
 
   bound_claims = {
-    terraform_organization_name = var.tfc_organization
-    terraform_workspace_name    = "demo-app-07"
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-07:run_phase:*"
   }
 
-  user_claim = "terraform_run_phase"
+  user_claim = "terraform_full_workspace"
   role_type  = "jwt"
 }
