@@ -33,7 +33,7 @@ variable "existing_key_pair_name" {
 variable "instance_type" {
   description = "EC2 instance type."
   type        = string
-  default     = "t3.micro"
+  default     = "t3.small"
 }
 
 variable "project_name" {
@@ -47,9 +47,19 @@ variable "vault_address" {
 }
 
 variable "vault_namespace" {
-  description = "Vault namespace (use 'admin' for HCP Vault)."
+  description = "Vault namespace. Empty string for self-managed Vault (root namespace). Use 'admin' for HCP Vault Dedicated."
   type        = string
-  default     = "admin"
+  default     = ""
+}
+
+variable "route53_zone_name" {
+  description = "Public Route53 hosted zone name (e.g. christian-renaud.sbx.hashidemos.io)."
+  type        = string
+}
+
+variable "fqdn" {
+  description = "Fully qualified domain name for the app (e.g. hello-go.christian-renaud.sbx.hashidemos.io)."
+  type        = string
 }
 
 variable "vpc_cidr" {

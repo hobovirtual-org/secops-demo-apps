@@ -81,10 +81,11 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	addr := "127.0.0.1:" + os.Getenv("PORT")
-	if addr == "127.0.0.1:" {
-		addr = "127.0.0.1:8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
+	addr := "0.0.0.0:" + port
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/health", healthHandler)
 	log.Printf("Listening on %s", addr)

@@ -1,3 +1,18 @@
+# ── Route53: look up the hosted zone ─────────────────────────────────────
+data "aws_route53_zone" "main" {
+  name         = var.route53_zone_name
+  private_zone = false
+}
+
+# ── Route53: A record pointing at the EC2 public IP ──────────────────────
+resource "aws_route53_record" "app" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = var.fqdn
+  type    = "A"
+  ttl     = 60
+  records = [aws_instance.app.public_ip]
+}
+
 # ── Vault: KV secret + policy ────────────────────────────────────────────
 module "vault_secret" {
   source = "../../../_shared/vault-kv-secret"
@@ -169,7 +184,8 @@ resource "aws_instance" "app" {
     delete_on_termination = true
   }
 
-  user_data = local.user_data
+  user_data                   = local.user_data
+  user_data_replace_on_change = true
 
   tags = { Name = "${local.name_prefix}-ec2" }
 }

@@ -16,7 +16,7 @@ terraform {
     organization = "crenaud-org"
 
     workspaces {
-      name = "demo-app-02-hello-vault-go"
+      name = "demo-app-02"
     }
   }
 }

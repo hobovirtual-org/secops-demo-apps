@@ -5,6 +5,15 @@ VAULT_ADDRESS="${vault_address}"
 VAULT_NAMESPACE="${vault_namespace}"
 VAULT_ROLE="${vault_role}"
 SECRET_PATH="${secret_path}"
+AWS_REGION="${aws_region}"
+
+# ── Swap space (prevents OOM-kill of dnf/go build on small instances) ────
+if [ ! -f /swapfile ]; then
+  fallocate -l 1G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+fi
 
 # ── Install Go ────────────────────────────────────────────────────────────
 dnf install -y golang
@@ -21,20 +30,29 @@ import (
 	"os"
 
 	vault "github.com/hashicorp/vault/api"
-	"github.com/hashicorp/vault/api/auth/aws"
+	vaultaws "github.com/hashicorp/vault/api/auth/aws"
 )
 
 var (
-	vaultAddr   = os.Getenv("VAULT_ADDR")
-	vaultNS     = os.Getenv("VAULT_NAMESPACE")
-	vaultRole   = os.Getenv("VAULT_ROLE")
-	secretPath  = os.Getenv("SECRET_PATH")
-	mountPoint  = os.Getenv("MOUNT_POINT")
+	vaultAddr  = mustEnv("VAULT_ADDR")
+	vaultNS    = os.Getenv("VAULT_NAMESPACE")
+	vaultRole  = mustEnv("VAULT_ROLE")
+	secretPath = os.Getenv("SECRET_PATH")
+	mountPoint = os.Getenv("MOUNT_POINT")
 )
 
-func vaultClient() (*vault.Client, error) {
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("required environment variable %s is not set", key)
+	}
+	return v
+}
+
+func newVaultClient() (*vault.Client, error) {
 	cfg := vault.DefaultConfig()
 	cfg.Address = vaultAddr
+
 	client, err := vault.NewClient(cfg)
 	if err != nil {
 		return nil, err
@@ -42,7 +60,8 @@ func vaultClient() (*vault.Client, error) {
 	if vaultNS != "" {
 		client.SetNamespace(vaultNS)
 	}
-	awsAuth, err := aws.NewAWSAuth(aws.WithRole(vaultRole))
+
+	awsAuth, err := vaultaws.NewAWSAuth(vaultaws.WithRole(vaultRole))
 	if err != nil {
 		return nil, err
 	}
@@ -53,18 +72,20 @@ func vaultClient() (*vault.Client, error) {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	client, err := vaultClient()
+	client, err := newVaultClient()
 	if err != nil {
-		http.Error(w, "vault auth failed", http.StatusInternalServerError)
 		log.Printf("ERROR vault auth: %v", err)
+		http.Error(w, "vault authentication failed", http.StatusInternalServerError)
 		return
 	}
-	secret, err := client.KVv2(mountPoint).Get(nil, secretPath)
+
+	secret, err := client.KVv2(mountPoint).Get(r.Context(), secretPath)
 	if err != nil {
-		http.Error(w, "secret read failed", http.StatusInternalServerError)
 		log.Printf("ERROR reading secret: %v", err)
+		http.Error(w, "secret read failed", http.StatusInternalServerError)
 		return
 	}
+
 	resp := map[string]string{
 		"status":      "ok",
 		"greeting":    secret.Data["greeting"].(string),
@@ -82,15 +103,17 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/health", healthHandler)
-	log.Println("Listening on 127.0.0.1:8080")
-	log.Fatal(http.ListenAndServe("127.0.0.1:8080", nil))
+	log.Println("Listening on 0.0.0.0:8080")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }
 GOAPP
 
+# ── Build the binary ──────────────────────────────────────────────────────
 cd /opt/hello-vault-go
 go mod init hello-vault-go
-go get github.com/hashicorp/vault/api@v1.15.0
-go get github.com/hashicorp/vault/api/auth/aws@v0.9.0
+go get github.com/hashicorp/vault/api@v1.23.0
+go get github.com/hashicorp/vault/api/auth/aws@v0.12.0
+go mod tidy
 go build -o hello-vault-go .
 
 # ── systemd service ───────────────────────────────────────────────────────
@@ -108,6 +131,7 @@ Environment=VAULT_NAMESPACE=__VAULT_NAMESPACE__
 Environment=VAULT_ROLE=__VAULT_ROLE__
 Environment=SECRET_PATH=config
 Environment=MOUNT_POINT=apps/hello-vault-go
+Environment=AWS_REGION=__AWS_REGION__
 ExecStart=/opt/hello-vault-go/hello-vault-go
 Restart=on-failure
 RestartSec=5
@@ -116,9 +140,10 @@ RestartSec=5
 WantedBy=multi-user.target
 SVC
 
-sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g" /etc/systemd/system/hello-vault-go.service
+sed -i "s|__VAULT_ADDR__|$VAULT_ADDRESS|g"   /etc/systemd/system/hello-vault-go.service
 sed -i "s|__VAULT_NAMESPACE__|$VAULT_NAMESPACE|g" /etc/systemd/system/hello-vault-go.service
-sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g" /etc/systemd/system/hello-vault-go.service
+sed -i "s|__VAULT_ROLE__|$VAULT_ROLE|g"      /etc/systemd/system/hello-vault-go.service
+sed -i "s|__AWS_REGION__|$AWS_REGION|g"      /etc/systemd/system/hello-vault-go.service
 
 systemctl daemon-reload
 systemctl enable --now hello-vault-go
