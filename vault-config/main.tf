@@ -31,6 +31,25 @@ resource "vault_policy" "demo_app_01" {
   name = "demo-app-01-provisioner"
 
   policy = <<-POLICY
+    # AWS auth backend — sys/auth/* required to enable/disable the backend
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+
+    # AWS auth backend config and roles
+    path "auth/aws/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+
     # KV v2 secrets engine management
     path "sys/mounts/apps/hello-vault-python" {
       capabilities = ["create", "read", "update", "delete"]
@@ -39,15 +58,7 @@ resource "vault_policy" "demo_app_01" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
 
-    # AWS auth method management
-    path "sys/auth/aws/hello-vault-python" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/aws/hello-vault-python/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-
-    # Policy management — allow creating the app read policy
+    # Policy management
     path "sys/policies/acl/hello-vault-python-read" {
       capabilities = ["create", "read", "update", "delete"]
     }
@@ -80,16 +91,25 @@ resource "vault_policy" "demo_app_02" {
   name = "demo-app-02-provisioner"
 
   policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+    path "auth/aws/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
     path "sys/mounts/apps/hello-vault-go" {
       capabilities = ["create", "read", "update", "delete"]
     }
     path "apps/hello-vault-go/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    path "sys/auth/aws/hello-vault-go" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/aws/hello-vault-go/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
     path "sys/policies/acl/hello-vault-go-read" {
@@ -124,16 +144,25 @@ resource "vault_policy" "demo_app_03" {
   name = "demo-app-03-provisioner"
 
   policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+    path "auth/aws/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
     path "sys/mounts/apps/hello-vault-node" {
       capabilities = ["create", "read", "update", "delete"]
     }
     path "apps/hello-vault-node/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    path "sys/auth/aws/hello-vault-node" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/aws/hello-vault-node/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
     path "sys/policies/acl/hello-vault-node-read" {
@@ -168,16 +197,25 @@ resource "vault_policy" "demo_app_04" {
   name = "demo-app-04-provisioner"
 
   policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+    path "auth/aws/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
     path "sys/mounts/apps/hello-vault-java" {
       capabilities = ["create", "read", "update", "delete"]
     }
     path "apps/hello-vault-java/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    path "sys/auth/aws/hello-vault-java" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/aws/hello-vault-java/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
     path "sys/policies/acl/hello-vault-java-read" {
@@ -212,23 +250,32 @@ resource "vault_policy" "demo_app_05" {
   name = "demo-app-05-provisioner"
 
   policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+    path "auth/aws/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
     path "sys/mounts/apps/dynamic-aws" {
       capabilities = ["create", "read", "update", "delete"]
     }
     path "apps/dynamic-aws/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
-    path "sys/auth/aws/dynamic-aws" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/aws/dynamic-aws/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    # AWS secrets engine — needed to configure dynamic IAM creds
-    path "sys/mounts/aws/dynamic-aws" {
+    # AWS secrets engine for dynamic IAM credentials
+    path "sys/mounts/aws" {
       capabilities = ["create", "read", "update", "delete"]
     }
-    path "aws/dynamic-aws/*" {
+    path "aws/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
     path "sys/policies/acl/dynamic-aws-read" {
@@ -263,17 +310,25 @@ resource "vault_policy" "demo_app_06" {
   name = "demo-app-06-provisioner"
 
   policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+    path "auth/kubernetes/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
     path "sys/mounts/apps/hello-vault-eks" {
       capabilities = ["create", "read", "update", "delete"]
     }
     path "apps/hello-vault-eks/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    # Kubernetes auth method management
-    path "sys/auth/kubernetes/hello-vault-eks" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/kubernetes/hello-vault-eks/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
     path "sys/policies/acl/hello-vault-eks-read" {
@@ -308,16 +363,25 @@ resource "vault_policy" "demo_app_07" {
   name = "demo-app-07-provisioner"
 
   policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+    path "auth/kubernetes/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
     path "sys/mounts/apps/mern-vault" {
       capabilities = ["create", "read", "update", "delete"]
     }
     path "apps/mern-vault/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    path "sys/auth/kubernetes/mern-vault" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-    path "auth/kubernetes/mern-vault/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
     path "sys/policies/acl/mern-vault-read" {
