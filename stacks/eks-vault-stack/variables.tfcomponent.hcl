@@ -27,8 +27,8 @@ variable "vault_address" {
 
 variable "vault_namespace" {
   type        = string
-  description = "Vault namespace (use 'admin' for HCP Vault)."
-  default     = "admin"
+  description = "Vault namespace. Empty string for self-managed Vault (root namespace); 'admin' for HCP Vault Dedicated."
+  default     = ""
 }
 
 # OIDC identity token — ephemeral so it does not persist in Stack state

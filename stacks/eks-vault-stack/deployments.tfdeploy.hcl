@@ -14,7 +14,7 @@ deployment "dev" {
     environment        = "dev"
     aws_region         = "us-east-1"
     vault_address      = "https://vault.christian-renaud.sbx.hashidemos.io"
-    vault_namespace    = "admin"
+    vault_namespace    = ""
     aws_role_arn       = "arn:aws:iam::REPLACE_WITH_YOUR_ACCOUNT_ID:role/hcp-terraform-oidc-demo"
     identity_token     = identity_token.aws.jwt
     node_instance_type = "t3.small"
@@ -29,7 +29,7 @@ deployment "dev" {
 #     environment        = "prod"
 #     aws_region         = "us-east-1"
 #     vault_address      = "https://vault.christian-renaud.sbx.hashidemos.io"
-#     vault_namespace    = "admin"
+#     vault_namespace    = ""
 #     aws_role_arn       = "arn:aws:iam::REPLACE_WITH_YOUR_ACCOUNT_ID:role/hcp-terraform-oidc-demo"
 #     identity_token     = identity_token.aws.jwt
 #     node_instance_type = "t3.medium"

@@ -28,7 +28,7 @@ module "vault_secret" {
 # ── VPC ────────────────────────────────────────────────────────────────────
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.21"
+  version = "~> 6.7"
 
   name = "${local.name_prefix}-vpc"
   cidr = var.vpc_cidr
@@ -45,18 +45,20 @@ module "vpc" {
   private_subnet_tags = { "kubernetes.io/role/internal-elb" = "1" }
 }
 
+data "aws_caller_identity" "current" {}
+
 # ── EKS ───────────────────────────────────────────────────────────────────
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.36"
+  version = "~> 21.25"
 
-  cluster_name    = "${local.name_prefix}-cluster"
-  cluster_version = "1.32"
+  name               = "${local.name_prefix}-cluster"
+  kubernetes_version = "1.32"
 
   vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnet_ids
+  subnet_ids = module.vpc.private_subnets
 
-  cluster_endpoint_public_access = true
+  endpoint_public_access = true
 
   eks_managed_node_groups = {
     default = {
@@ -67,7 +69,17 @@ module "eks" {
     }
   }
 
-  enable_cluster_creator_admin_permissions = true
+  access_entries = {
+    creator = {
+      principal_arn = data.aws_caller_identity.current.arn
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
 }
 
 # ── Vault: Kubernetes auth ────────────────────────────────────────────────
@@ -113,18 +125,20 @@ resource "helm_release" "vault_agent_injector" {
 
   create_namespace = true
 
-  set {
-    name  = "injector.enabled"
-    value = "true"
-  }
-  set {
-    name  = "server.enabled"
-    value = "false"
-  }
-  set {
-    name  = "injector.externalVaultAddr"
-    value = var.vault_address
-  }
+  set = [
+    {
+      name  = "injector.enabled"
+      value = "true"
+    },
+    {
+      name  = "server.enabled"
+      value = "false"
+    },
+    {
+      name  = "injector.externalVaultAddr"
+      value = var.vault_address
+    },
+  ]
 }
 
 # ── MongoDB (in-cluster, StatefulSet) ─────────────────────────────────────
@@ -291,7 +305,7 @@ resource "kubernetes_deployment" "backend" {
 
         container {
           name    = "mern-backend"
-          image   = "node:20-slim"
+          image   = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
           command = ["node", "server.js"]
 
           working_dir = "/app"
@@ -355,7 +369,7 @@ resource "kubernetes_deployment" "frontend" {
       spec {
         container {
           name    = "mern-frontend"
-          image   = "node:20-slim"
+          image   = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
           command = ["node", "serve.js"]
 
           working_dir = "/app"

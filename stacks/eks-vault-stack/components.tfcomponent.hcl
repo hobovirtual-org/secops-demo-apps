@@ -13,7 +13,7 @@ locals {
 # ── VPC ────────────────────────────────────────────────────────────────────
 component "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.21"
+  version = "~> 6.7"
 
   inputs = {
     name = "${local.name_prefix}-vpc"
@@ -45,16 +45,16 @@ component "vpc" {
 # ── EKS ───────────────────────────────────────────────────────────────────
 component "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.36"
+  version = "~> 21.25"
 
   inputs = {
-    cluster_name    = "${local.name_prefix}-cluster"
-    cluster_version = "1.32"
+    name               = "${local.name_prefix}-cluster"
+    kubernetes_version = "1.32"
 
     vpc_id     = component.vpc.vpc_id
     subnet_ids = component.vpc.private_subnets
 
-    cluster_endpoint_public_access = true
+    endpoint_public_access = true
 
     eks_managed_node_groups = {
       default = {
@@ -65,7 +65,18 @@ component "eks" {
       }
     }
 
-    enable_cluster_creator_admin_permissions = true
+    # Grant the OIDC IAM role (used by HCP Terraform / Stacks) cluster-admin access.
+    access_entries = {
+      deployer = {
+        principal_arn = var.aws_role_arn
+        policy_associations = {
+          admin = {
+            policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            access_scope = { type = "cluster" }
+          }
+        }
+      }
+    }
 
     tags = {
       Project     = var.project_name

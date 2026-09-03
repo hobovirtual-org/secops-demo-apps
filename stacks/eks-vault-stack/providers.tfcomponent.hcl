@@ -33,11 +33,10 @@ provider "aws" "main" {
   }
 }
 
-# Vault — uses VAULT_TOKEN from HCP Terraform variable set
+# Vault — JWT dynamic credentials via HCP Terraform (no stored token, no namespace for self-managed Vault)
 provider "vault" "main" {
   config {
-    address   = var.vault_address
-    namespace = var.vault_namespace
+    address = var.vault_address
   }
 }
 
@@ -55,14 +54,14 @@ provider "kubernetes" "main" {
   }
 }
 
-# Helm — mirrors the kubernetes provider
+# Helm — mirrors the kubernetes provider (v3: kubernetes = {...} assignment syntax)
 provider "helm" "main" {
   config {
-    kubernetes {
+    kubernetes = {
       host                   = component.eks.cluster_endpoint
       cluster_ca_certificate = component.eks.cluster_ca_cert_b64
 
-      exec {
+      exec = {
         api_version = "client.authentication.k8s.io/v1beta1"
         command     = "aws"
         args        = ["eks", "get-token", "--cluster-name", component.eks.cluster_name, "--region", var.aws_region]
