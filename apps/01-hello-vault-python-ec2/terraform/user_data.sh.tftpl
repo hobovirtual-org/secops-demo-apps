@@ -16,10 +16,9 @@ if [ ! -f /swapfile ]; then
 fi
 
 # ── Install Python venv support ───────────────────────────────────────────
-# python3 ships with RHEL9; python3-pip + venv are all we need.
-# Using a venv avoids both PEP-668 externally-managed errors and
-# user-vs-system install path problems with different service users.
-dnf install -y python3-pip python3-virtualenv
+# python3 ships with RHEL9 AMIs; python3-pip is the only missing piece.
+# python3-virtualenv does not exist on this AMI — python3 -m venv is built-in.
+dnf install -y python3-pip
 
 # ── Create venv and install app dependencies ──────────────────────────────
 python3 -m venv /opt/hello-vault-venv

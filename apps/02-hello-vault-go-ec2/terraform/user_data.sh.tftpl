@@ -18,6 +18,12 @@ fi
 # ── Install Go ────────────────────────────────────────────────────────────
 dnf install -y golang
 
+# ── Set Go environment for root (required for go mod/build in cloud-init) ─
+export HOME=/root
+export GOPATH=/root/go
+export GOMODCACHE=/root/go/pkg/mod
+mkdir -p "$GOPATH" "$GOMODCACHE"
+
 # ── Write the app ─────────────────────────────────────────────────────────
 mkdir -p /opt/hello-vault-go
 cat > /opt/hello-vault-go/main.go << 'GOAPP'
