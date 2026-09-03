@@ -27,7 +27,7 @@ terraform {
   cloud {
     organization = "crenaud-org"
     workspaces {
-      name = "demo-app-07-mern-vault"
+      name = "demo-app-07"
     }
   }
 }
