@@ -1,14 +1,24 @@
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
 
 VAULT_ADDRESS="${vault_address}"
 VAULT_NAMESPACE="${vault_namespace}"
 VAULT_ROLE="${vault_role}"
 SECRET_PATH="${secret_path}"
 
+# ── Swap space (prevents OOM-kill of dnf on small instances) ─────────────
+if [ ! -f /swapfile ]; then
+  fallocate -l 1G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+fi
+
 # ── Install dependencies ──────────────────────────────────────────────────
-dnf install -y python3 python3-pip
-pip3 install hvac flask boto3
+# python3 ships with RHEL9 AMIs; only pip is needed.
+dnf install -y python3-pip
+# --break-system-packages required on RHEL9's externally-managed Python.
+pip3 install --break-system-packages hvac flask boto3
 
 # ── Write the app ─────────────────────────────────────────────────────────
 mkdir -p /opt/hello-vault
