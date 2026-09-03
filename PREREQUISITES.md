@@ -93,13 +93,19 @@ vault read auth/jwt/role/demo-apps-vault-config
 > [!IMPORTANT]
 > If you are rebuilding this environment from scratch, these two steps **must be done before** triggering any `demo-apps-vault-config` run. All subsequent JWT roles (for `demo-app-01` through `demo-app-07`) are created automatically by that workspace.
 
-### 1.4 — Vault AWS auth (EC2 apps 01–05)
+### 1.4 — Vault EC2 instance IAM permissions for AWS auth (already in `secops-vault-dev`)
+
+When an app workspace calls `vault_aws_auth_backend_role` with a `bound_iam_principal_arns`, Vault resolves the ARN to an internal ID by calling `iam:GetRole` **from the Vault server itself**. Additionally, Vault calls `sts:GetCallerIdentity` to verify every incoming EC2 login request.
+
+These permissions are managed by `aws_iam_role_policy.vault_aws_auth` in `secops-vault-dev/main.tf` and were added to the Vault EC2 instance role when App 01 was first deployed. They are already in place — no manual action required.
+
+If rebuilding from scratch, ensure `secops-vault-dev` is applied **before** any EC2 app workspace runs. Without these permissions, app workspaces will fail with `AccessDenied: iam:GetRole`.
+
+### 1.5 — Vault AWS auth backend (EC2 apps 01–05)
 
 Each EC2 app creates its own AWS auth backend and role automatically via the `_shared/vault-aws-auth` module. No manual Vault setup required.
 
-Vault calls `sts:GetCallerIdentity` to verify the EC2 IAM identity. Ensure the Vault EC2 instance role (from `secops-vault-dev`) has no SCP blocking outbound STS calls.
-
-### 1.5 — Vault AWS secrets engine (App 05 only)
+### 1.6 — Vault AWS secrets engine (App 05 only)
 
 App 05 uses the Vault AWS secrets engine to issue dynamic IAM credentials. The Vault EC2 instance role needs IAM permissions to create and delete IAM users:
 
