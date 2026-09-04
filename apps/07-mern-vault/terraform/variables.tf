@@ -49,6 +49,11 @@ variable "desired_node_count" {
   default     = 2
 }
 
+variable "aws_role_arn" {
+  description = "IAM role ARN of the HCP Terraform OIDC role — used as the EKS access entry principal. Must be a role ARN (arn:aws:iam::...), not an assumed-role session ARN."
+  type        = string
+}
+
 variable "mongodb_atlas_public_key" {
   description = "MongoDB Atlas public API key (used only if using Atlas; leave empty for in-cluster MongoDB)."
   type        = string

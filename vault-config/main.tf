@@ -399,7 +399,7 @@ resource "vault_policy" "demo_app_07" {
     path "apps/mern-vault/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
-    path "sys/policies/acl/mern-vault-read" {
+    path "sys/policies/acl/mern-vault-mongodb-read" {
       capabilities = ["create", "read", "update", "delete"]
     }
   POLICY

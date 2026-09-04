@@ -41,11 +41,12 @@ module "vpc" {
   single_nat_gateway   = true
   enable_dns_hostnames = true
 
-  public_subnet_tags  = { "kubernetes.io/role/elb" = "1" }
-  private_subnet_tags = { "kubernetes.io/role/internal-elb" = "1" }
+  public_subnet_tags = { "kubernetes.io/role/elb" = "1" }
+  private_subnet_tags = {
+    "kubernetes.io/role/internal-elb"                       = "1"
+    "kubernetes.io/cluster/${local.name_prefix}-cluster"    = "owned"
+  }
 }
-
-data "aws_caller_identity" "current" {}
 
 # ── EKS ───────────────────────────────────────────────────────────────────
 module "eks" {
@@ -69,9 +70,11 @@ module "eks" {
     }
   }
 
+  # Use the IAM role ARN of the HCP Terraform OIDC role (not the assumed-role
+  # session ARN returned by aws_caller_identity, which EKS rejects).
   access_entries = {
     creator = {
-      principal_arn = data.aws_caller_identity.current.arn
+      principal_arn = var.aws_role_arn
       policy_associations = {
         admin = {
           policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
