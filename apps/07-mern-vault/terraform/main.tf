@@ -41,11 +41,10 @@ module "vpc" {
   single_nat_gateway   = true
   enable_dns_hostnames = true
 
-  public_subnet_tags = { "kubernetes.io/role/elb" = "1" }
-  private_subnet_tags = {
-    "kubernetes.io/role/internal-elb"                       = "1"
-    "kubernetes.io/cluster/${local.name_prefix}-cluster"    = "owned"
-  }
+  # EKS uses these tags to discover subnets for load balancers.
+  # The cluster-owned tag is applied automatically by the EKS module.
+  public_subnet_tags  = { "kubernetes.io/role/elb" = "1" }
+  private_subnet_tags = { "kubernetes.io/role/internal-elb" = "1" }
 }
 
 # ── EKS ───────────────────────────────────────────────────────────────────
@@ -59,10 +58,15 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  endpoint_public_access = true
+  # Both public and private endpoint access: nodes (private subnets) reach the
+  # API via private DNS; kubectl / TFC reach it via the public endpoint.
+  endpoint_public_access  = true
+  endpoint_private_access = true
 
   eks_managed_node_groups = {
     default = {
+      # AL2023 is the default for EKS 1.32; explicit avoids AMI resolution issues.
+      ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = [var.node_instance_type]
       min_size       = 1
       max_size       = 4
@@ -107,26 +111,31 @@ resource "vault_kubernetes_auth_backend_role" "backend" {
 }
 
 # ── Kubernetes namespace + SA ─────────────────────────────────────────────
-resource "kubernetes_namespace" "app" {
+resource "kubernetes_namespace_v1" "app" {
   metadata { name = local.k8s_namespace }
 }
 
-resource "kubernetes_service_account" "backend" {
+resource "kubernetes_service_account_v1" "backend" {
   metadata {
     name      = local.k8s_sa_name
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
   }
+
+  depends_on = [kubernetes_namespace_v1.app]
 }
 
 # ── Vault Agent Injector ───────────────────────────────────────────────────
 resource "helm_release" "vault_agent_injector" {
-  name       = "vault"
-  namespace  = "vault"
-  repository = "https://helm.releases.hashicorp.com"
-  chart      = "vault"
-  version    = "0.30.0"
-
+  name             = "vault"
+  namespace        = "vault"
+  repository       = "https://helm.releases.hashicorp.com"
+  chart            = "vault"
+  version          = "0.30.0"
   create_namespace = true
+
+  # Give the injector pods time to schedule and become ready on a fresh cluster.
+  timeout = 600
+  wait    = true
 
   set = [
     {
@@ -142,13 +151,15 @@ resource "helm_release" "vault_agent_injector" {
       value = var.vault_address
     },
   ]
+
+  depends_on = [module.eks]
 }
 
 # ── MongoDB (in-cluster, StatefulSet) ─────────────────────────────────────
-resource "kubernetes_config_map" "mongo_init" {
+resource "kubernetes_config_map_v1" "mongo_init" {
   metadata {
     name      = "mongo-init"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
   }
 
   data = {
@@ -162,12 +173,14 @@ resource "kubernetes_config_map" "mongo_init" {
       db.items.insertOne({ message: 'Hello from MongoDB!', createdAt: new Date() });
     JS
   }
+
+  depends_on = [kubernetes_namespace_v1.app]
 }
 
-resource "kubernetes_stateful_set" "mongodb" {
+resource "kubernetes_stateful_set_v1" "mongodb" {
   metadata {
     name      = "mongodb"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
   }
 
   spec {
@@ -183,21 +196,21 @@ resource "kubernetes_stateful_set" "mongodb" {
         labels = { app = "mongodb" }
         annotations = {
           "vault.hashicorp.com/agent-inject"                      = "true"
-          "vault.hashicorp.com/agent-inject-secret-mongodb.env"   = "${module.vault_secret.secret_path}"
+          "vault.hashicorp.com/agent-inject-secret-mongodb.env"   = module.vault_secret.secret_path
           "vault.hashicorp.com/agent-inject-template-mongodb.env" = <<-TPL
             {{- with secret "${module.vault_secret.secret_path}" -}}
             export MONGO_INITDB_ROOT_PASSWORD="{{ .Data.data.mongo_password }}"
             export MONGO_INITDB_ROOT_USERNAME="{{ .Data.data.mongo_username }}"
             {{- end }}
           TPL
-          "vault.hashicorp.com/role"                              = local.vault_k8s_role
-          "vault.hashicorp.com/namespace"                         = var.vault_namespace
-          "vault.hashicorp.com/auth-path"                         = "auth/kubernetes/${local.app_name}"
+          "vault.hashicorp.com/role"      = local.vault_k8s_role
+          "vault.hashicorp.com/namespace" = var.vault_namespace
+          "vault.hashicorp.com/auth-path" = "auth/kubernetes/${local.app_name}"
         }
       }
 
       spec {
-        service_account_name = kubernetes_service_account.backend.metadata[0].name
+        service_account_name = local.k8s_sa_name
 
         init_container {
           name    = "vault-env-loader"
@@ -252,12 +265,18 @@ resource "kubernetes_stateful_set" "mongodb" {
       }
     }
   }
+
+  depends_on = [
+    helm_release.vault_agent_injector,
+    kubernetes_service_account_v1.backend,
+    kubernetes_config_map_v1.mongo_init,
+  ]
 }
 
-resource "kubernetes_service" "mongodb" {
+resource "kubernetes_service_v1" "mongodb" {
   metadata {
     name      = "mongodb"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
   }
   spec {
     selector = { app = "mongodb" }
@@ -267,15 +286,15 @@ resource "kubernetes_service" "mongodb" {
     }
     cluster_ip = "None" # Headless service for StatefulSet
   }
+
+  depends_on = [kubernetes_namespace_v1.app]
 }
 
 # ── Backend (Express/Node.js) deployment ─────────────────────────────────
-resource "kubernetes_deployment" "backend" {
-  depends_on = [helm_release.vault_agent_injector]
-
+resource "kubernetes_deployment_v1" "backend" {
   metadata {
     name      = "mern-backend"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
     labels    = { app = "mern-backend" }
   }
 
@@ -291,20 +310,20 @@ resource "kubernetes_deployment" "backend" {
         labels = { app = "mern-backend" }
         annotations = {
           "vault.hashicorp.com/agent-inject"                      = "true"
-          "vault.hashicorp.com/agent-inject-secret-config.json"   = "${module.vault_secret.secret_path}"
+          "vault.hashicorp.com/agent-inject-secret-config.json"   = module.vault_secret.secret_path
           "vault.hashicorp.com/agent-inject-template-config.json" = <<-TPL
             {{- with secret "${module.vault_secret.secret_path}" -}}
             {{ .Data.data | toJSON }}
             {{- end }}
           TPL
-          "vault.hashicorp.com/role"                              = local.vault_k8s_role
-          "vault.hashicorp.com/namespace"                         = var.vault_namespace
-          "vault.hashicorp.com/auth-path"                         = "auth/kubernetes/${local.app_name}"
+          "vault.hashicorp.com/role"      = local.vault_k8s_role
+          "vault.hashicorp.com/namespace" = var.vault_namespace
+          "vault.hashicorp.com/auth-path" = "auth/kubernetes/${local.app_name}"
         }
       }
 
       spec {
-        service_account_name = kubernetes_service_account.backend.metadata[0].name
+        service_account_name = local.k8s_sa_name
 
         container {
           name    = "mern-backend"
@@ -332,12 +351,17 @@ resource "kubernetes_deployment" "backend" {
       }
     }
   }
+
+  depends_on = [
+    helm_release.vault_agent_injector,
+    kubernetes_service_account_v1.backend,
+  ]
 }
 
-resource "kubernetes_service" "backend" {
+resource "kubernetes_service_v1" "backend" {
   metadata {
     name      = "mern-backend"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
   }
   spec {
     selector = { app = "mern-backend" }
@@ -347,13 +371,15 @@ resource "kubernetes_service" "backend" {
     }
     type = "ClusterIP"
   }
+
+  depends_on = [kubernetes_namespace_v1.app]
 }
 
 # ── Frontend (React) deployment ───────────────────────────────────────────
-resource "kubernetes_deployment" "frontend" {
+resource "kubernetes_deployment_v1" "frontend" {
   metadata {
     name      = "mern-frontend"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
     labels    = { app = "mern-frontend" }
   }
 
@@ -391,12 +417,14 @@ resource "kubernetes_deployment" "frontend" {
       }
     }
   }
+
+  depends_on = [kubernetes_namespace_v1.app]
 }
 
-resource "kubernetes_service" "frontend" {
+resource "kubernetes_service_v1" "frontend" {
   metadata {
     name      = "mern-frontend"
-    namespace = kubernetes_namespace.app.metadata[0].name
+    namespace = local.k8s_namespace
   }
   spec {
     selector = { app = "mern-frontend" }
@@ -406,4 +434,6 @@ resource "kubernetes_service" "frontend" {
     }
     type = "LoadBalancer"
   }
+
+  depends_on = [kubernetes_namespace_v1.app]
 }
