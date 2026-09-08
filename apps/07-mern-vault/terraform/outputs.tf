@@ -17,3 +17,13 @@ output "frontend_service" {
   description = "Kubernetes service for the React frontend."
   value       = "kubectl get svc mern-frontend -n ${local.k8s_namespace}"
 }
+
+output "uptycs_tag_string" {
+  description = "IBM tag string applied to the Uptycs sensor — use this for verification."
+  value       = module.uptycs.tag_string
+}
+
+output "uptycs_node_uuid_command" {
+  description = "kubectl command to get node UUIDs for Uptycs verification tool."
+  value       = module.uptycs.node_uuid_command
+}

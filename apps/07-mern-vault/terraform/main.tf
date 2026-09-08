@@ -437,3 +437,15 @@ resource "kubernetes_service_v1" "frontend" {
 
   depends_on = [kubernetes_namespace_v1.app]
 }
+
+# ── Uptycs EDR sensor (IBM CISO requirement) ──────────────────────────────
+module "uptycs" {
+  source = "../../../_shared/uptycs-eks"
+
+  uptycs_helm_repo_url = var.uptycs_helm_repo_url
+  uptycs_chart_version = var.uptycs_chart_version
+  uptycs_owner_email   = var.uptycs_owner_email
+  uptycs_update_tag    = var.uptycs_update_tag
+
+  depends_on = [module.eks]
+}
