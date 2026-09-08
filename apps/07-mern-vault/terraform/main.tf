@@ -71,6 +71,15 @@ module "eks" {
       min_size       = 1
       max_size       = 4
       desired_size   = var.desired_node_count
+
+      # AL2023 nodes run the aws-node CNI DaemonSet inside a container, which
+      # makes IMDS calls one hop away from the host. The module default of 1
+      # blocks those calls and causes NodeCreationFailure / Unhealthy nodes.
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required" # IMDSv2 enforced
+        http_put_response_hop_limit = 2
+      }
     }
   }
 
