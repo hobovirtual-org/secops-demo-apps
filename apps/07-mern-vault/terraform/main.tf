@@ -212,9 +212,9 @@ resource "kubernetes_stateful_set_v1" "mongodb" {
             export MONGO_INITDB_ROOT_USERNAME="{{ .Data.data.mongo_username }}"
             {{- end }}
           TPL
-          "vault.hashicorp.com/role"      = local.vault_k8s_role
-          "vault.hashicorp.com/namespace" = var.vault_namespace
-          "vault.hashicorp.com/auth-path" = "auth/kubernetes/${local.app_name}"
+          "vault.hashicorp.com/role"                              = local.vault_k8s_role
+          "vault.hashicorp.com/namespace"                         = var.vault_namespace
+          "vault.hashicorp.com/auth-path"                         = "auth/kubernetes/${local.app_name}"
         }
       }
 
@@ -325,9 +325,9 @@ resource "kubernetes_deployment_v1" "backend" {
             {{ .Data.data | toJSON }}
             {{- end }}
           TPL
-          "vault.hashicorp.com/role"      = local.vault_k8s_role
-          "vault.hashicorp.com/namespace" = var.vault_namespace
-          "vault.hashicorp.com/auth-path" = "auth/kubernetes/${local.app_name}"
+          "vault.hashicorp.com/role"                              = local.vault_k8s_role
+          "vault.hashicorp.com/namespace"                         = var.vault_namespace
+          "vault.hashicorp.com/auth-path"                         = "auth/kubernetes/${local.app_name}"
         }
       }
 
