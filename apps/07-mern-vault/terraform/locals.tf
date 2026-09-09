@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 locals {
   app_name       = "mern-vault"
   name_prefix    = "${var.project_name}-${local.app_name}-${var.environment}"
