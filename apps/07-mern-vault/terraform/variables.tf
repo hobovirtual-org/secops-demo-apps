@@ -54,6 +54,12 @@ variable "aws_role_arn" {
   type        = string
 }
 
+variable "developer_role_arns" {
+  description = "List of IAM role ARNs (arn:aws:iam::...) to grant EKS cluster admin access for kubectl. Must be role ARNs, not assumed-role session ARNs."
+  type        = list(string)
+  default     = []
+}
+
 variable "mongodb_atlas_public_key" {
   description = "MongoDB Atlas public API key (used only if using Atlas; leave empty for in-cluster MongoDB)."
   type        = string

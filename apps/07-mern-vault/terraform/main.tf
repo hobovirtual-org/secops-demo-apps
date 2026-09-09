@@ -85,17 +85,29 @@ module "eks" {
 
   # Use the IAM role ARN of the HCP Terraform OIDC role (not the assumed-role
   # session ARN returned by aws_caller_identity, which EKS rejects).
-  access_entries = {
-    creator = {
-      principal_arn = var.aws_role_arn
+  # Developer roles are passed via var.developer_role_arns and merged in.
+  access_entries = merge(
+    {
+      creator = {
+        principal_arn = var.aws_role_arn
+        policy_associations = {
+          admin = {
+            policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            access_scope = { type = "cluster" }
+          }
+        }
+      }
+    },
+    { for arn in var.developer_role_arns : arn => {
+      principal_arn = arn
       policy_associations = {
         admin = {
           policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
           access_scope = { type = "cluster" }
         }
       }
-    }
-  }
+    } }
+  )
 }
 
 # ── Vault: Kubernetes auth ────────────────────────────────────────────────
