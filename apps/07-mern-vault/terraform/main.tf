@@ -126,6 +126,8 @@ resource "vault_kubernetes_auth_backend_role" "backend" {
 # ── Kubernetes namespace + SA ─────────────────────────────────────────────
 resource "kubernetes_namespace_v1" "app" {
   metadata { name = local.k8s_namespace }
+
+  depends_on = [module.eks.eks_managed_node_groups]
 }
 
 resource "kubernetes_service_account_v1" "backend" {
@@ -165,7 +167,11 @@ resource "helm_release" "vault_agent_injector" {
     },
   ]
 
-  depends_on = [module.eks]
+  # Wait for node group to be ACTIVE before scheduling any pods.
+  # module.eks completes when the control plane is ready, but nodes may still
+  # be joining — depending on eks_managed_node_groups ensures at least one
+  # node group has reached ACTIVE before the first helm release is attempted.
+  depends_on = [module.eks.eks_managed_node_groups]
 }
 
 # ── MongoDB (in-cluster, StatefulSet) ─────────────────────────────────────
@@ -460,5 +466,5 @@ module "uptycs" {
   uptycs_owner_email   = var.uptycs_owner_email
   uptycs_update_tag    = var.uptycs_update_tag
 
-  depends_on = [module.eks]
+  depends_on = [module.eks.eks_managed_node_groups]
 }
