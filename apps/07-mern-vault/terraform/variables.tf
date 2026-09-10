@@ -49,11 +49,6 @@ variable "desired_node_count" {
   default     = 2
 }
 
-variable "aws_role_arn" {
-  description = "IAM role ARN of the HCP Terraform OIDC role — used as the EKS access entry principal. Must be a role ARN (arn:aws:iam::...), not an assumed-role session ARN."
-  type        = string
-}
-
 variable "developer_role_arns" {
   description = "List of IAM role ARNs (arn:aws:iam::...) to grant EKS cluster admin access for kubectl. Must be role ARNs, not assumed-role session ARNs."
   type        = list(string)
