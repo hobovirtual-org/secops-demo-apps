@@ -49,7 +49,7 @@ component "eks" {
 
   inputs = {
     name               = "${local.name_prefix}-cluster"
-    kubernetes_version = "1.32"
+    kubernetes_version = "1.36"
 
     vpc_id     = component.vpc.vpc_id
     subnet_ids = component.vpc.private_subnets
