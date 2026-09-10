@@ -16,27 +16,29 @@ provider "vault" {
   # No namespace — self-managed Vault instance (root namespace).
 }
 
+# try() guards allow graceful destroy when the cluster has already been deleted:
+# the provider falls back to an empty host rather than erroring on a null output.
 provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  host                   = try(module.eks.cluster_endpoint, "")
+  cluster_ca_certificate = try(base64decode(module.eks.cluster_certificate_authority_data), "")
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    args        = ["eks", "get-token", "--cluster-name", try(module.eks.cluster_name, "")]
   }
 }
 
 # Helm provider v3: kubernetes block uses assignment syntax (kubernetes = {...})
 provider "helm" {
   kubernetes = {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+    host                   = try(module.eks.cluster_endpoint, "")
+    cluster_ca_certificate = try(base64decode(module.eks.cluster_certificate_authority_data), "")
 
     exec = {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+      args        = ["eks", "get-token", "--cluster-name", try(module.eks.cluster_name, "")]
     }
   }
 }
