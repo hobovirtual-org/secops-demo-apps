@@ -125,6 +125,24 @@ resource "kubernetes_service_account" "app" {
   }
 }
 
+resource "kubernetes_cluster_role_binding" "vault_auth_delegator" {
+  metadata {
+    name = "vault-token-review-binding-${local.app_name}"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = "system:auth-delegator"
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = local.k8s_sa_name
+    namespace = kubernetes_namespace.app.metadata[0].name
+  }
+}
+
 # ── Vault Agent Injector (Helm) ───────────────────────────────────────────
 resource "helm_release" "vault_agent_injector" {
   name       = "vault"

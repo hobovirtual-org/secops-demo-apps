@@ -163,6 +163,27 @@ resource "kubernetes_service_account_v1" "backend" {
   depends_on = [kubernetes_namespace_v1.app]
 }
 
+# Grant the ServiceAccount permissions to validate tokens via the TokenReview API
+resource "kubernetes_cluster_role_binding_v1" "vault_auth_delegator" {
+  metadata {
+    name = "vault-token-review-binding-${local.app_name}"
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = "system:auth-delegator"
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = local.k8s_sa_name
+    namespace = local.k8s_namespace
+  }
+
+  depends_on = [kubernetes_service_account_v1.backend]
+}
+
 # ── Vault Agent Injector ───────────────────────────────────────────────────
 resource "helm_release" "vault_agent_injector" {
   name             = "vault"
