@@ -95,9 +95,11 @@ resource "vault_auth_backend" "kubernetes" {
 }
 
 resource "vault_kubernetes_auth_backend_config" "main" {
-  backend            = vault_auth_backend.kubernetes.path
-  kubernetes_host    = module.eks.cluster_endpoint
-  kubernetes_ca_cert = base64decode(module.eks.cluster_certificate_authority_data)
+  backend                = vault_auth_backend.kubernetes.path
+  kubernetes_host        = module.eks.cluster_endpoint
+  kubernetes_ca_cert     = base64decode(module.eks.cluster_certificate_authority_data)
+  issuer                 = module.eks.cluster_oidc_issuer_url
+  disable_iss_validation = false
 }
 
 resource "vault_kubernetes_auth_backend_role" "app" {
