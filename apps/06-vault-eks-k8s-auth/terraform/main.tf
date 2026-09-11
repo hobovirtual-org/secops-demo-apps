@@ -176,7 +176,7 @@ resource "kubernetes_deployment" "app" {
 
         container {
           name  = "hello-vault-node"
-          image = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
+          image = "registry.access.redhat.com/ubi9/nodejs-20-minimal:latest"
 
           port {
             container_port = 8080

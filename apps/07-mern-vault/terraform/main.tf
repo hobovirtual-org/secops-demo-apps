@@ -242,8 +242,9 @@ resource "kubernetes_stateful_set_v1" "mongodb" {
         service_account_name = local.k8s_sa_name
 
         container {
-          name  = "mongodb"
-          image = "registry.redhat.io/rhel9/mongodb-70:latest"
+          name    = "mongodb"
+          image   = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+          command = ["sh", "-c", "echo 'MongoDB stub running' && sleep infinity"]
 
           port { container_port = 27017 }
 
@@ -336,7 +337,7 @@ resource "kubernetes_deployment_v1" "backend" {
 
         container {
           name  = "mern-backend"
-          image = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
+          image = "registry.access.redhat.com/ubi9/nodejs-20-minimal:latest"
           command = ["node", "-e", <<-JS
             const http = require('http');
             const fs   = require('fs');
@@ -468,7 +469,7 @@ resource "kubernetes_deployment_v1" "frontend" {
       spec {
         container {
           name  = "mern-frontend"
-          image = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
+          image = "registry.access.redhat.com/ubi9/nodejs-20-minimal:latest"
           command = ["node", "-e", <<-JS
             const http = require('http');
             const PORT = process.env.PORT || 3000;
