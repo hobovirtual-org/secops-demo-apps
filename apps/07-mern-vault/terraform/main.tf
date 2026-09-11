@@ -85,9 +85,10 @@ resource "vault_mount" "db" {
 }
 
 resource "vault_database_secret_backend_connection" "mongodb" {
-  backend       = vault_mount.db.path
-  name          = "mongodb"
-  allowed_roles = ["mern-app-role", "mern-analytics-role"]
+  backend           = vault_mount.db.path
+  name              = "mongodb"
+  allowed_roles     = ["mern-app-role", "mern-analytics-role"]
+  verify_connection = false
 
   mongodb {
     connection_url = "mongodb://{{username}}:{{password}}@mongodb.${local.k8s_namespace}.svc.cluster.local:27017/admin?ssl=false"
