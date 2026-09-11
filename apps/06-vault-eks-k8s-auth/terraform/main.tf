@@ -38,6 +38,18 @@ module "eks" {
 
   endpoint_public_access = true
 
+  # Allow the EKS control plane to reach the Vault Agent Injector webhook on port 8080
+  node_security_group_additional_rules = {
+    ingress_vault_injector = {
+      description                   = "Allow EKS control plane to communicate with Vault Agent Injector webhook"
+      protocol                      = "tcp"
+      from_port                     = 8080
+      to_port                       = 8080
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+  }
+
   eks_managed_node_groups = {
     default = {
       instance_types = [var.node_instance_type]
