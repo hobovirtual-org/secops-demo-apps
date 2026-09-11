@@ -6,10 +6,10 @@ output "namespace" {
 output "tag_string" {
   description = "Full IBM tag string applied to the Uptycs sensor."
   value = join(",", [
-    "UPDATE/${var.uptycs_update_tag}",
-    "CCODE/HashiCorp",
-    "UT/20A7V",
-    "OWNER/${var.uptycs_owner_email}",
+    "UPDATE=${var.uptycs_update_tag}",
+    "CCODE=HashiCorp",
+    "UT=20A7V",
+    "OWNER=${var.uptycs_owner_email}",
   ])
 }
 

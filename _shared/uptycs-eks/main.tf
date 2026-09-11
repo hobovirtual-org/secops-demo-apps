@@ -53,10 +53,10 @@ resource "helm_release" "uptycs" {
         name = "uptycs-config"
         data = {
           tags = join(",", [
-            "UPDATE/${var.uptycs_update_tag}",
-            "CCODE/HashiCorp",
-            "UT/20A7V",
-            "OWNER/${var.uptycs_owner_email}",
+            "UPDATE=${var.uptycs_update_tag}",
+            "CCODE=HashiCorp",
+            "UT=20A7V",
+            "OWNER=${var.uptycs_owner_email}",
           ])
         }
       }

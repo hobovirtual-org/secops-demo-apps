@@ -127,7 +127,8 @@ configmap:
   name: uptycs-config
   data:
     # osquery tags follow the mandatory IBM CISO schema: UPDATE/CCODE/UT/OWNER
-    tags: UPDATE/PROD,CCODE/HashiCorp,UT/20A7V,OWNER/crenaudl@ibm.com
+    # Uptycs CLI flag parser expects key=value pairs, while IBM schema maps to UPDATE=.../CCODE=...
+    tags: UPDATE=NONE,CCODE=HashiCorp,UT=20A7V,OWNER=crenaudl@ibm.com
     # In order to use a proxy running in the same cluster by service name please specify the complete service name below like this:
     # local_proxy: <proxy_name>.<proxy_namespace>.svc.cluster.local
     local_proxy:
