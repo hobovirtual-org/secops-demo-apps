@@ -28,9 +28,24 @@ output "kubectl_context" {
   value       = "arn:aws:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${module.eks.cluster_name}"
 }
 
+output "app_url" {
+  description = "Public URL of the frontend application."
+  value       = try("http://${kubernetes_service_v1.frontend.status[0].load_balancer[0].ingress[0].hostname}", "Pending AWS ELB provisioning")
+}
+
 output "frontend_service" {
-  description = "Kubernetes service for the React frontend."
+  description = "Kubernetes service command for the React frontend."
   value       = "kubectl get svc mern-frontend -n ${local.k8s_namespace}"
+}
+
+output "vault_k8s_auth_path" {
+  description = "Vault Kubernetes auth backend path."
+  value       = vault_auth_backend.kubernetes.path
+}
+
+output "vault_role" {
+  description = "Vault Kubernetes auth role name for the backend."
+  value       = vault_kubernetes_auth_backend_role.backend.role_name
 }
 
 output "uptycs_tag_string" {

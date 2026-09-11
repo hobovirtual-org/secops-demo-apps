@@ -28,28 +28,27 @@
 │                                                                                  │
 │  User Browser                                                                    │
 │    │                                                                             │
-│    ▼ (Port 80)                                                                   │
-│  mern-frontend (React 19 / UBI 9 Minimal)                                        │
+│    ▼ (Port 80 via AWS LoadBalancer)                                              │
+│  mern-frontend (Node 20 / UBI 9 Minimal)                                         │
 │    │                                                                             │
-│    ▼ (Port 3001)                                                                 │
-│  mern-backend (Express / Node 20 / UBI 9 Minimal)                                │
+│    ▼ (Port 3001 via ClusterIP)                                                   │
+│  mern-backend (Node 20 / UBI 9 Minimal)                                          │
 │    ├── Pod Init: vault-agent-init (Auths to Vault via K8s SA JWT)                │
-│    ├── Injected Volume: /vault/secrets/config.json (DB credentials & JWT secret) │
+│    ├── RoleBinding: system:auth-delegator (RBAC for TokenReview API)             │
+│    ├── Sidecar: vault-agent (Injects /vault/secrets/config.json)                 │
 │    │                                                                             │
 │    ▼ (Port 27017)                                                                │
-│  mongodb (StatefulSet / RHEL 9 MongoDB 7.0)                                      │
-│    ├── Injected Volume: /vault/secrets/mongodb.env (Admin credentials)           │
-│    └── PersistentVolumeClaim: 5Gi GP3                                            │
+│  mongodb (StatefulSet / UBI 9 Minimal)                                           │
 │                                                                                  │
-│  DaemonSet: Uptycs EDR Sensor (Security & Compliance monitoring)                 │
+│  DaemonSet: Uptycs EDR Sensor (Optional CISO Compliance monitoring)             │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Vault Secret Provisioning**: Terraform generates a secure random password and writes the credentials to Vault KV v2 at `apps/mern-vault/mongodb`.
-2. **Kubernetes Auth**: The backend and MongoDB pods authenticate to Vault using their ServiceAccount projected tokens.
-3. **Vault Agent Injector**: Intercepts pod deployment and injects Vault Agent sidecars/init-containers.
-4. **Secret Delivery**: Renders `/vault/secrets/config.json` for the backend and `/vault/secrets/mongodb.env` for MongoDB root init.
-5. **Runtime Decoupling**: No static database credentials exist in Kubernetes Secret objects, container environment variables, or Git repositories.
+1. **Vault Secret Provisioning**: Terraform generates a secure random password and writes credentials to Vault KV v2 at `apps/mern-vault/data/mongodb`.
+2. **Kubernetes Auth & RBAC**: The backend pod ServiceAccount uses `system:auth-delegator` to allow Vault to validate its projected ServiceAccount JWT via the TokenReview API against the cluster OIDC issuer (`module.eks.cluster_oidc_issuer_url`).
+3. **Vault Agent Injector**: Webhook intercepts backend pod creation (port `8080` control-plane ingress) and injects the `vault-agent` init/sidecar containers.
+4. **Secret Delivery**: Vault Agent writes `/vault/secrets/config.json` in a shared `emptyDir` volume.
+5. **Runtime Decoupling & Status API**: Backend reads the file and exposes `/api/vault-status` and `/api/items` to the frontend.
 
 ## Quick Start
 
@@ -73,17 +72,21 @@ Push to `main` or trigger a plan/apply in HCP Terraform.
 ### 3. Access and Verify the Cluster
 
 ```bash
-# Configure local kubectl context
-aws eks update-kubeconfig --region us-east-1 --name demo-mern-vault-cluster
+# 1. Configure local kubectl context
+aws eks update-kubeconfig --region us-east-1 --name demo-mern-vault-dev-cluster
 
-# View cluster workloads
-kubectl get pods -n mern-vault
+# 2. View cluster workloads (verify backend shows 2/2 ready)
+kubectl get pods -n mern-vault -o wide
 
-# Verify injected database config in the backend pod
+# 3. Verify injected database config inside the pod
 kubectl exec -n mern-vault deploy/mern-backend -c mern-backend -- cat /vault/secrets/config.json
 
-# Retrieve the React frontend public LoadBalancer URL
+# 4. Check Vault authentication logs in the sidecar
+kubectl logs -n mern-vault deploy/mern-backend -c vault-agent --tail=20
+
+# 5. Open the web UI in your browser
 kubectl get svc mern-frontend -n mern-vault
+# Visit http://<EXTERNAL-IP> in your browser to inspect live Vault injection status & flow
 ```
 
 ## Prerequisites
@@ -124,10 +127,13 @@ kubectl get svc mern-frontend -n mern-vault
 
 | Name | Description |
 |---|---|
+| `app_url` | Public URL of the frontend application (LoadBalancer hostname) |
 | `cluster_name` | EKS cluster name |
 | `cluster_endpoint` | EKS cluster API server endpoint |
 | `cluster_certificate_authority_data` | Base64-encoded CA data for the EKS cluster |
 | `vault_secret_path` | Vault KV path for MongoDB credentials |
+| `vault_k8s_auth_path` | Vault Kubernetes auth backend mount path |
+| `vault_role` | Vault Kubernetes auth role name |
 | `kubeconfig_command` | Command to configure kubectl for the cluster |
 | `kubectl_context` | Full kubectl context name |
 | `frontend_service` | Command to inspect the React frontend service |

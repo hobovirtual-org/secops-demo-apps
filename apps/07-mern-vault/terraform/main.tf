@@ -404,6 +404,27 @@ resource "kubernetes_deployment_v1" "backend" {
                 return;
               }
 
+              if (req.url === '/api/vault-status' && req.method === 'GET') {
+                try {
+                  const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({
+                    auth_method: 'Kubernetes (JWT ServiceAccount)',
+                    secret_path: 'apps/mern-vault/data/mongodb',
+                    injected_file: FILE,
+                    status: 'Connected & Secrets Injected by Vault Agent Sidecar',
+                    mongo_host: secrets.mongo_host || 'mongodb.mern-vault.svc.cluster.local',
+                    mongo_database: secrets.mongo_database || 'merndb',
+                    mongo_user: secrets.mongo_username || 'mernapp',
+                    jwt_secret_configured: !!secrets.jwt_secret
+                  }));
+                } catch (e) {
+                  res.writeHead(500, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'Vault secret error: ' + e.message }));
+                }
+                return;
+              }
+
               if (req.url === '/api/items' && req.method === 'GET') {
                 try {
                   const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
@@ -516,33 +537,81 @@ resource "kubernetes_deployment_v1" "frontend" {
             const html = `<!DOCTYPE html>
             <html>
             <head>
-              <title>MERN + Vault Demo</title>
+              <title>MERN + Vault Security Demo</title>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
               <style>
-                body { font-family: -apple-system, system-ui, sans-serif; margin: 40px auto; max-width: 600px; padding: 0 16px; color: #1f2328; }
-                h1 { margin-bottom: 8px; }
-                p { color: #57606a; font-size: 14px; }
-                form { display: flex; gap: 8px; margin-bottom: 24px; }
-                input { flex: 1; padding: 8px 12px; border-radius: 4px; border: 1px solid #d0d7de; }
-                button { padding: 8px 16px; background: #3b82d4; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-                ul { list-style: none; padding: 0; }
-                li { padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 14px; display: flex; justify-content: space-between; }
+                body { font-family: -apple-system, system-ui, sans-serif; margin: 30px auto; max-width: 720px; padding: 0 16px; color: #1f2328; background: #fafbfc; }
+                .card { background: #fff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+                h1 { margin: 0 0 8px; font-size: 22px; color: #24292e; }
+                h2 { margin: 0 0 12px; font-size: 16px; color: #24292e; border-bottom: 1px solid #eaecef; padding-bottom: 6px; }
+                p { color: #57606a; font-size: 14px; margin: 0 0 16px; }
+                .flow-step { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f6f8fa; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+                .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+                .badge-green { background: #dafbe1; color: #1a7f37; }
+                .badge-blue { background: #ddf4ff; color: #0969da; }
+                .badge-purple { background: #fbefff; color: #8250df; }
+                form { display: flex; gap: 8px; margin-bottom: 16px; }
+                input { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #d0d7de; font-size: 14px; }
+                button { padding: 8px 18px; background: #1f883d; color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+                ul { list-style: none; padding: 0; margin: 0; }
+                li { padding: 10px 12px; border-bottom: 1px solid #e1e4e8; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
                 .meta { color: #57606a; font-size: 12px; }
+                pre { background: #f6f8fa; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; margin: 0; border: 1px solid #e1e4e8; }
               </style>
             </head>
             <body>
-              <h1>MERN + Vault Demo</h1>
-              <p>Secrets injected dynamically via Vault Agent Injector on Amazon EKS.</p>
-              <form id="addForm">
-                <input id="msg" placeholder="Add a new message..." required />
-                <button type="submit">Add</button>
-              </form>
-              <ul id="list"></ul>
+              <div class="card">
+                <h1>MERN + Vault Security Flow</h1>
+                <p>Zero static tokens, dynamic Kubernetes ServiceAccount authentication & sidecar secret rendering.</p>
+                
+                <h2>Security & Authentication Architecture</h2>
+                <div class="flow-step">
+                  <span>1. <strong>Identity:</strong> Pod Projected ServiceAccount Token</span>
+                  <span class="badge badge-purple">Kubernetes JWT</span>
+                </div>
+                <div class="flow-step">
+                  <span>2. <strong>Auth Method:</strong> Vault Kubernetes Auth Backend</span>
+                  <span class="badge badge-blue">auth/kubernetes/mern-vault</span>
+                </div>
+                <div class="flow-step">
+                  <span>3. <strong>Secret Delivery:</strong> Vault Agent Injector Sidecar</span>
+                  <span class="badge badge-green">/vault/secrets/config.json</span>
+                </div>
+                <div class="flow-step">
+                  <span>4. <strong>Runtime Decoupling:</strong> No DB credentials in Env or Git</span>
+                  <span class="badge badge-green">Zero-Secret App</span>
+                </div>
+              </div>
+
+              <div class="card">
+                <h2>Live Vault Injection Status</h2>
+                <div id="vault-status"><pre>Loading status from backend...</pre></div>
+              </div>
+
+              <div class="card">
+                <h2>Vault-Secured Database Messages</h2>
+                <form id="addForm">
+                  <input id="msg" placeholder="Write a message to MongoDB..." required />
+                  <button type="submit">Send</button>
+                </form>
+                <ul id="list"></ul>
+              </div>
+
               <script>
-                async function load() {
+                const API = '/api';
+                async function loadStatus() {
                   try {
-                    const res = await fetch('/api/items');
+                    const res = await fetch(API + '/vault-status');
+                    const status = await res.json();
+                    document.getElementById('vault-status').innerHTML = '<pre>' + JSON.stringify(status, null, 2) + '</pre>';
+                  } catch(e) {
+                    document.getElementById('vault-status').innerHTML = '<pre style="color:red">Backend API unreachable or secret missing</pre>';
+                  }
+                }
+                async function loadItems() {
+                  try {
+                    const res = await fetch(API + '/items');
                     const items = await res.json();
                     document.getElementById('list').innerHTML = items.map(i => '<li><span>' + i.message + '</span><span class="meta">' + new Date(i.createdAt).toLocaleTimeString() + '</span></li>').join('');
                   } catch(e) { console.error(e); }
@@ -550,11 +619,12 @@ resource "kubernetes_deployment_v1" "frontend" {
                 document.getElementById('addForm').onsubmit = async (e) => {
                   e.preventDefault();
                   const msg = document.getElementById('msg').value;
-                  await fetch('/api/items', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: msg}) });
+                  await fetch(API + '/items', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: msg}) });
                   document.getElementById('msg').value = '';
-                  load();
+                  loadItems();
                 };
-                load();
+                loadStatus();
+                loadItems();
               </script>
             </body>
             </html>`;
@@ -565,6 +635,27 @@ resource "kubernetes_deployment_v1" "frontend" {
                 res.end(JSON.stringify({ status: 'healthy' }));
                 return;
               }
+
+              // Proxy API calls directly to the internal mern-backend ClusterIP service
+              if (req.url.startsWith('/api')) {
+                const proxyReq = http.request({
+                  hostname: 'mern-backend',
+                  port: 3001,
+                  path: req.url,
+                  method: req.method,
+                  headers: req.headers
+                }, proxyRes => {
+                  res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                  proxyRes.pipe(res, { end: true });
+                });
+                proxyReq.on('error', err => {
+                  res.writeHead(502, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'Backend gateway error: ' + err.message }));
+                });
+                req.pipe(proxyReq, { end: true });
+                return;
+              }
+
               res.writeHead(200, { 'Content-Type': 'text/html' });
               res.end(html);
             });
