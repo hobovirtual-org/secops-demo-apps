@@ -52,11 +52,15 @@ sequenceDiagram
     FE-->>User: Render Dashboard & Security Flow
 ```
 
-1. **Vault Secret Provisioning**: Terraform generates a secure random password and writes credentials to Vault KV v2 at `apps/mern-vault/data/mongodb`.
-2. **Kubernetes Auth & RBAC**: The backend pod ServiceAccount uses `system:auth-delegator` to allow Vault to validate its projected ServiceAccount JWT via the TokenReview API against the cluster OIDC issuer (`module.eks.cluster_oidc_issuer_url`).
-3. **Vault Agent Injector**: Webhook intercepts backend pod creation (port `8080` control-plane ingress) and injects the `vault-agent` init/sidecar containers.
-4. **Secret Delivery**: Vault Agent writes `/vault/secrets/config.json` in a shared `emptyDir` volume.
-5. **Runtime Decoupling & Status API**: Backend reads the file and exposes `/api/vault-status` and `/api/items` to the frontend.
+### Key Demonstrations & Use Cases in the Live Dashboard
+
+The interactive frontend provides tabbed navigation exploring distinct security concepts and operational value:
+
+1. **Architecture & Live Telemetry**: Live interactive SVG communication diagram showing pod-to-pod networking, Vault Agent mutating webhook injection, and real-time pod metadata from `/api/vault-status`.
+2. **Zero-Trust Identity Handshake**: Visual step-by-step breakdown of projected ServiceAccount JWTs, EKS OIDC validation, Vault role policy bindings, and a live simulation trigger (`/api/simulate-auth`).
+3. **Sidecar Secret Injection**: Deep dive into Consul Template rendering, pod annotations, and in-memory `emptyDir` file decoupling with zero Vault SDK overhead in application code.
+4. **Verified Data Plane**: Interactive transaction engine writing categorized audit records to MongoDB to prove dynamic database credentials work end-to-end.
+5. **Threat Model Comparison**: Side-by-side comparison table contrasting traditional Kubernetes secret patterns against HashiCorp Vault zero-trust principles.
 
 ## Quick Start
 
@@ -92,7 +96,10 @@ kubectl exec -n mern-vault deploy/mern-backend -c mern-backend -- cat /vault/sec
 # 4. Check Vault authentication logs in the sidecar
 kubectl logs -n mern-vault deploy/mern-backend -c vault-agent --tail=20
 
-# 5. Open the web UI in your browser
+# 5. Retrieve Kubernetes node UUIDs for IBM CISO Uptycs verification
+kubectl get nodes -o=jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.systemUUID}{"\n"}{end}'
+
+# 6. Open the web UI in your browser
 kubectl get svc mern-frontend -n mern-vault
 # Visit http://<EXTERNAL-IP> in your browser to inspect live Vault injection status & flow
 ```

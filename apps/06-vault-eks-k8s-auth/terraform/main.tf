@@ -48,6 +48,30 @@ module "eks" {
       type                          = "ingress"
       source_cluster_security_group = true
     }
+    ingress_wiz_scanner_1 = {
+      description = "Allow Wiz Cloud Scanner IP 1 for cluster visibility"
+      protocol    = "tcp"
+      from_port   = 0
+      to_port     = 65535
+      type        = "ingress"
+      cidr_blocks = ["44.219.22.239/32"]
+    }
+    ingress_wiz_scanner_2 = {
+      description = "Allow Wiz Cloud Scanner IP 2 for cluster visibility"
+      protocol    = "tcp"
+      from_port   = 0
+      to_port     = 65535
+      type        = "ingress"
+      cidr_blocks = ["54.205.48.237/32"]
+    }
+    ingress_wiz_scanner_3 = {
+      description = "Allow Wiz Cloud Scanner IP 3 for cluster visibility"
+      protocol    = "tcp"
+      from_port   = 0
+      to_port     = 65535
+      type        = "ingress"
+      cidr_blocks = ["52.207.181.131/32"]
+    }
   }
 
   eks_managed_node_groups = {

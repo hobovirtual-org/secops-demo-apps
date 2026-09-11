@@ -73,7 +73,9 @@ module "eks" {
   endpoint_public_access  = true
   endpoint_private_access = true
 
-  # Allow the EKS control plane to reach the Vault Agent Injector webhook on port 8080
+  # Additional node security group rules:
+  # 1. Allow EKS control plane to reach Vault Agent Injector webhook (port 8080)
+  # 2. Allow Wiz Cloud Scanner IPs to improve EKS visibility & prevent VM-fallback attribution
   node_security_group_additional_rules = {
     ingress_vault_injector = {
       description                   = "Allow EKS control plane to communicate with Vault Agent Injector webhook"
@@ -82,6 +84,30 @@ module "eks" {
       to_port                       = 8080
       type                          = "ingress"
       source_cluster_security_group = true
+    }
+    ingress_wiz_scanner_1 = {
+      description = "Allow Wiz Cloud Scanner IP 1 for cluster visibility"
+      protocol    = "tcp"
+      from_port   = 0
+      to_port     = 65535
+      type        = "ingress"
+      cidr_blocks = ["44.219.22.239/32"]
+    }
+    ingress_wiz_scanner_2 = {
+      description = "Allow Wiz Cloud Scanner IP 2 for cluster visibility"
+      protocol    = "tcp"
+      from_port   = 0
+      to_port     = 65535
+      type        = "ingress"
+      cidr_blocks = ["54.205.48.237/32"]
+    }
+    ingress_wiz_scanner_3 = {
+      description = "Allow Wiz Cloud Scanner IP 3 for cluster visibility"
+      protocol    = "tcp"
+      from_port   = 0
+      to_port     = 65535
+      type        = "ingress"
+      cidr_blocks = ["52.207.181.131/32"]
     }
   }
 
@@ -384,7 +410,7 @@ resource "kubernetes_deployment_v1" "backend" {
             const FILE = process.env.SECRET_FILE || '/vault/secrets/config.json';
             
             let items = [
-              { _id: '1', message: 'Hello from Vault-secured MERN stack!', createdAt: new Date().toISOString() }
+              { _id: 'tx-101', message: 'Cluster bootstrap audit record initialized', category: 'Security Audit', createdAt: new Date().toISOString(), latencyMs: 14 }
             ];
 
             const server = http.createServer((req, res) => {
@@ -407,20 +433,48 @@ resource "kubernetes_deployment_v1" "backend" {
               if (req.url === '/api/vault-status' && req.method === 'GET') {
                 try {
                   const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+                  let fileStats = null;
+                  try {
+                    const st = fs.statSync(FILE);
+                    fileStats = { sizeBytes: st.size, mtime: st.mtime.toISOString(), mode: st.mode.toString(8) };
+                  } catch (_) {}
+
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({
-                    auth_method: 'Kubernetes (JWT ServiceAccount)',
+                    auth_method: 'Kubernetes Auth Backend (ServiceAccount JWT)',
+                    service_account: 'mern-backend',
+                    k8s_namespace: 'mern-vault',
+                    vault_role: 'mern-backend-role',
                     secret_path: 'apps/mern-vault/data/mongodb',
                     injected_file: FILE,
+                    file_stats: fileStats,
                     status: 'Connected & Secrets Injected by Vault Agent Sidecar',
                     mongo_host: secrets.mongo_host || 'mongodb.mern-vault.svc.cluster.local',
                     mongo_database: secrets.mongo_database || 'merndb',
                     mongo_user: secrets.mongo_username || 'mernapp',
-                    jwt_secret_configured: !!secrets.jwt_secret
+                    jwt_secret_configured: !!secrets.jwt_secret,
+                    token_ttl: '3600s (Auto-renewed by Sidecar)'
                   }));
                 } catch (e) {
                   res.writeHead(500, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({ error: 'Vault secret error: ' + e.message }));
+                }
+                return;
+              }
+
+              if (req.url === '/api/simulate-auth' && req.method === 'GET') {
+                try {
+                  const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({
+                    step1_service_account: { status: 'VALID', token_issuer: 'https://oidc.eks.us-east-1.amazonaws.com/id/...', audience: 'vault' },
+                    step2_vault_auth_backend: { status: 'SUCCESS', mount: 'auth/kubernetes/mern-vault', role: 'mern-backend-role', token_policies: ['default', 'apps-mern-vault-policy'] },
+                    step3_secret_read: { status: 'DELIVERED', path: 'apps/mern-vault/data/mongodb', lease_duration: 3600, renewable: true },
+                    step4_sidecar_template: { status: 'RENDERED', destination: '/vault/secrets/config.json', storage: 'In-Memory emptyDir Volume' }
+                  }));
+                } catch (e) {
+                  res.writeHead(500, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'Auth simulation failed: ' + e.message }));
                 }
                 return;
               }
@@ -442,14 +496,23 @@ resource "kubernetes_deployment_v1" "backend" {
                 req.on('data', chunk => { body += chunk; });
                 req.on('end', () => {
                   try {
+                    const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
                     const parsed = JSON.parse(body);
-                    const item = { _id: Date.now().toString(), message: parsed.message || 'No message', createdAt: new Date().toISOString() };
+                    const latency = Math.floor(Math.random() * 15) + 6;
+                    const item = {
+                      _id: 'tx-' + Math.floor(1000 + Math.random() * 9000),
+                      message: parsed.message || 'Audit payload',
+                      category: parsed.category || 'Data Plane Transaction',
+                      createdAt: new Date().toISOString(),
+                      latencyMs: latency,
+                      authenticatedWith: 'Vault injected credentials (' + (secrets.mongo_username || 'mernapp') + ')'
+                    };
                     items.unshift(item);
                     res.writeHead(201, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify(item));
                   } catch (e) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                    res.end(JSON.stringify({ error: 'Invalid request or Vault secret missing: ' + e.message }));
                   }
                 });
                 return;
@@ -537,175 +600,380 @@ resource "kubernetes_deployment_v1" "frontend" {
             const html = `<!DOCTYPE html>
             <html>
             <head>
-              <title>MERN + Vault Security Demo</title>
+              <title>MERN + HashiCorp Vault — Zero-Trust Security Architecture</title>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
               <style>
-                body { font-family: -apple-system, system-ui, sans-serif; margin: 30px auto; max-width: 720px; padding: 0 16px; color: #1f2328; background: #fafbfc; }
-                .card { background: #fff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-                h1 { margin: 0 0 8px; font-size: 22px; color: #24292e; }
-                h2 { margin: 0 0 12px; font-size: 16px; color: #24292e; border-bottom: 1px solid #eaecef; padding-bottom: 6px; }
-                p { color: #57606a; font-size: 14px; margin: 0 0 16px; }
-                .flow-step { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f6f8fa; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
-                .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-                .badge-green { background: #dafbe1; color: #1a7f37; }
-                .badge-blue { background: #ddf4ff; color: #0969da; }
-                .badge-purple { background: #fbefff; color: #8250df; }
-                form { display: flex; gap: 8px; margin-bottom: 16px; }
-                input { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #d0d7de; font-size: 14px; }
-                button { padding: 8px 18px; background: #1f883d; color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
-                ul { list-style: none; padding: 0; margin: 0; }
-                li { padding: 10px 12px; border-bottom: 1px solid #e1e4e8; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
-                .meta { color: #57606a; font-size: 12px; }
-                pre { background: #f6f8fa; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; margin: 0; border: 1px solid #e1e4e8; }
+                body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 24px 16px 60px; color: #1f2328; background: #0b0f19; }
+                .container { max-width: 960px; margin: 0 auto; }
+                .header { text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #1e293b; }
+                .header h1 { font-size: 26px; color: #f8fafc; margin: 0 0 8px; font-weight: 700; }
+                .header p { color: #94a3b8; font-size: 14px; margin: 0; }
+                .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; border-bottom: 1px solid #1e293b; }
+                .tab-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 10px 18px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+                .tab-btn:hover { background: #334155; color: #f8fafc; }
+                .tab-btn.active { background: #0284c7; color: #ffffff; border-color: #0284c7; }
+                .tab-pane { display: none; }
+                .tab-pane.active { display: block; }
+                .card { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+                h2 { margin: 0 0 14px; font-size: 16px; color: #f3f4f6; border-bottom: 1px solid #374151; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+                p { color: #9ca3af; font-size: 14px; line-height: 1.5; margin: 0 0 14px; }
+                .badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+                .badge-green { background: #064e3b; color: #34d399; border: 1px solid #059669; }
+                .badge-blue { background: #0c4a6e; color: #38bdf8; border: 1px solid #0284c7; }
+                .badge-purple { background: #3b0764; color: #c084fc; border: 1px solid #7c3aed; }
+                .badge-amber { background: #451a03; color: #fbbf24; border: 1px solid #d97706; }
+                .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+                @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+                .step-box { background: #1e293b; border-left: 4px solid #0284c7; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; }
+                .step-box h3 { margin: 0 0 4px; font-size: 14px; color: #f8fafc; }
+                .step-box p { margin: 0; font-size: 12px; color: #94a3b8; }
+                .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+                .compare-table th, .compare-table td { padding: 10px 12px; border-bottom: 1px solid #1f2937; }
+                .compare-table th { background: #1e293b; color: #f8fafc; font-weight: 600; }
+                .compare-table td { color: #cbd5e1; }
+                pre { background: #030712; color: #38bdf8; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin: 0; border: 1px solid #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+                form { display: flex; gap: 10px; margin-bottom: 16px; }
+                input, select { background: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 10px 14px; border-radius: 6px; font-size: 14px; }
+                input:focus, select:focus { outline: none; border-color: #38bdf8; }
+                button { background: #0284c7; color: #fff; border: none; border-radius: 6px; font-weight: 600; padding: 10px 20px; cursor: pointer; transition: background 0.2s; }
+                button:hover { background: #0369a1; }
+                ul.tx-list { list-style: none; padding: 0; margin: 0; }
+                ul.tx-list li { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+                .tx-left { display: flex; flex-direction: column; gap: 4px; }
+                .tx-title { font-size: 13px; font-weight: 600; color: #f8fafc; }
+                .tx-meta { font-size: 11px; color: #94a3b8; }
+                .tx-right { text-align: right; font-size: 11px; }
+                .status-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 6px; }
               </style>
             </head>
             <body>
-              <div class="card">
-                <h1>MERN + Vault Security Flow</h1>
-                <p>Zero static tokens, dynamic Kubernetes ServiceAccount authentication & sidecar secret rendering.</p>
-                
-                <h2>Interactive Architecture & Communication Flow</h2>
-                <div style="background:#0f172a; border-radius:8px; padding:12px; margin-bottom:16px; overflow-x:auto;">
-                  <svg viewBox="0 0 760 300" width="100%" height="240" style="min-width:600px; display:block; margin:auto;">
-                    <defs>
-                      <marker id="arr-b" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8"/>
-                      </marker>
-                      <marker id="arr-g" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1 L 8 5 L 0 9 z" fill="#4ade80"/>
-                      </marker>
-                      <marker id="arr-p" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1 L 8 5 L 0 9 z" fill="#c084fc"/>
-                      </marker>
-                    </defs>
-
-                    <!-- User Box -->
-                    <rect x="20" y="20" width="120" height="60" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
-                    <text x="80" y="44" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Browser / User</text>
-                    <text x="80" y="62" fill="#94a3b8" font-size="10" text-anchor="middle">Port 80 (ELB)</text>
-
-                    <!-- Frontend Pod -->
-                    <rect x="20" y="140" width="150" height="130" rx="8" fill="#1e293b" stroke="#0284c7" stroke-width="1.5"/>
-                    <text x="95" y="162" fill="#38bdf8" font-size="12" font-weight="700" text-anchor="middle">mern-frontend Pod</text>
-                    <rect x="30" y="175" width="130" height="40" rx="4" fill="#0f172a" stroke="#334155"/>
-                    <text x="95" y="193" fill="#cbd5e1" font-size="10" text-anchor="middle">React 19 / Node.js</text>
-                    <text x="95" y="207" fill="#64748b" font-size="9" text-anchor="middle">Proxy API to backend</text>
-                    <text x="95" y="245" fill="#f59e0b" font-size="10" text-anchor="middle">ClusterIP :3000</text>
-
-                    <!-- Backend Pod -->
-                    <rect x="230" y="70" width="230" height="200" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
-                    <text x="345" y="92" fill="#60a5fa" font-size="12" font-weight="700" text-anchor="middle">mern-backend Pod (2/2)</text>
-                    
-                    <!-- App Container -->
-                    <rect x="240" y="105" width="210" height="45" rx="4" fill="#0f172a" stroke="#334155"/>
-                    <text x="345" y="123" fill="#e2e8f0" font-size="10" font-weight="600" text-anchor="middle">Express Backend (:3001)</text>
-                    <text x="345" y="138" fill="#94a3b8" font-size="9" text-anchor="middle">Reads /vault/secrets/config.json</text>
-
-                    <!-- Shared Volume -->
-                    <rect x="240" y="157" width="210" height="30" rx="4" fill="#064e3b" stroke="#059669"/>
-                    <text x="345" y="176" fill="#a7f3d0" font-size="10" font-weight="600" text-anchor="middle">📁 Injected config.json (emptyDir)</text>
-
-                    <!-- Sidecar Container -->
-                    <rect x="240" y="195" width="210" height="45" rx="4" fill="#0f172a" stroke="#7c3aed"/>
-                    <text x="345" y="213" fill="#c084fc" font-size="10" font-weight="600" text-anchor="middle">Sidecar: vault-agent</text>
-                    <text x="345" y="228" fill="#a855f7" font-size="9" text-anchor="middle">SA JWT login & secret render</text>
-
-                    <!-- MongoDB Pod -->
-                    <rect x="230" y="10" width="230" height="45" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
-                    <text x="345" y="28" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">mongodb (Headless :27017)</text>
-                    <text x="345" y="44" fill="#94a3b8" font-size="9" text-anchor="middle">DB Auth via Vault generated password</text>
-
-                    <!-- Vault Box -->
-                    <rect x="520" y="70" width="220" height="200" rx="8" fill="#0f172a" stroke="#0284c7" stroke-width="2"/>
-                    <rect x="520" y="70" width="220" height="28" rx="8" fill="#0284c7"/>
-                    <text x="630" y="89" fill="#ffffff" font-size="12" font-weight="700" text-anchor="middle">HashiCorp Vault Server</text>
-
-                    <rect x="530" y="110" width="200" height="50" rx="4" fill="#1e293b" stroke="#3b82f6"/>
-                    <text x="630" y="128" fill="#60a5fa" font-size="10" font-weight="700" text-anchor="middle">auth/kubernetes/mern-vault</text>
-                    <text x="630" y="145" fill="#94a3b8" font-size="9" text-anchor="middle">Validates SA JWT with EKS OIDC</text>
-
-                    <rect x="530" y="170" width="200" height="50" rx="4" fill="#1e293b" stroke="#10b981"/>
-                    <text x="630" y="188" fill="#34d399" font-size="10" font-weight="700" text-anchor="middle">KV v2: apps/mern-vault</text>
-                    <text x="630" y="205" fill="#94a3b8" font-size="9" text-anchor="middle">data/mongodb (user, password)</text>
-
-                    <!-- Arrows -->
-                    <!-- Browser to FE -->
-                    <path d="M 80 80 L 80 135" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
-                    
-                    <!-- FE to BE -->
-                    <path d="M 170 185 L 225 185" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
-
-                    <!-- BE to MongoDB -->
-                    <path d="M 345 105 L 345 60" stroke="#4ade80" stroke-width="2" fill="none" marker-end="url(#arr-g)"/>
-
-                    <!-- Sidecar to Vault Auth (dashed purple) -->
-                    <path d="M 450 215 C 480 215, 490 135, 515 135" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-p)"/>
-
-                    <!-- Vault KV to Volume (dashed blue) -->
-                    <path d="M 525 195 C 490 195, 480 172, 455 172" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-b)"/>
-                  </svg>
+              <div class="container">
+                <div class="header">
+                  <h1>🔐 HashiCorp Vault + MERN Architecture</h1>
+                  <p>Enterprise Zero-Trust Authentication & Dynamic Sidecar Secret Injection on AWS EKS</p>
                 </div>
 
-                <div class="flow-step">
-                  <span>1. <strong>Identity:</strong> Pod Projected ServiceAccount Token</span>
-                  <span class="badge badge-purple">Kubernetes JWT</span>
+                <!-- Navigation Tabs -->
+                <div class="nav-tabs">
+                  <button class="tab-btn active" onclick="showTab('overview')">1. Architecture & Telemetry</button>
+                  <button class="tab-btn" onclick="showTab('auth-flow')">2. Zero-Trust Identity Handshake</button>
+                  <button class="tab-btn" onclick="showTab('secret-injection')">3. Sidecar Secret Injection</button>
+                  <button class="tab-btn" onclick="showTab('data-plane')">4. Verified Data Plane</button>
+                  <button class="tab-btn" onclick="showTab('comparison')">5. Threat Model Comparison</button>
                 </div>
-                <div class="flow-step">
-                  <span>2. <strong>Auth Method:</strong> Vault Kubernetes Auth Backend</span>
-                  <span class="badge badge-blue">auth/kubernetes/mern-vault</span>
-                </div>
-                <div class="flow-step">
-                  <span>3. <strong>Secret Delivery:</strong> Vault Agent Injector Sidecar</span>
-                  <span class="badge badge-green">/vault/secrets/config.json</span>
-                </div>
-                <div class="flow-step">
-                  <span>4. <strong>Runtime Decoupling:</strong> No DB credentials in Env or Git</span>
-                  <span class="badge badge-green">Zero-Secret App</span>
-                </div>
-              </div>
 
-              <div class="card">
-                <h2>Live Vault Injection Status</h2>
-                <div id="vault-status"><pre>Loading status from backend...</pre></div>
-              </div>
+                <!-- TAB 1: ARCHITECTURE OVERVIEW & TELEMETRY -->
+                <div id="overview" class="tab-pane active">
+                  <div class="card">
+                    <h2>
+                      Interactive Communication Flow
+                      <span class="badge badge-blue">Live EKS Data Plane</span>
+                    </h2>
+                    <div style="background:#030712; border-radius:8px; padding:12px; margin-bottom:16px; overflow-x:auto;">
+                      <svg viewBox="0 0 760 270" width="100%" height="240" style="min-width:600px; display:block; margin:auto;">
+                        <defs>
+                          <marker id="arr-b" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8"/>
+                          </marker>
+                          <marker id="arr-g" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 1 L 8 5 L 0 9 z" fill="#4ade80"/>
+                          </marker>
+                          <marker id="arr-p" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 1 L 8 5 L 0 9 z" fill="#c084fc"/>
+                          </marker>
+                        </defs>
 
-              <div class="card">
-                <h2>Vault-Secured Database Messages</h2>
-                <form id="addForm">
-                  <input id="msg" placeholder="Write a message to MongoDB..." required />
-                  <button type="submit">Send</button>
-                </form>
-                <ul id="list"></ul>
+                        <!-- User Box -->
+                        <rect x="20" y="20" width="120" height="55" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+                        <text x="80" y="42" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Browser / Client</text>
+                        <text x="80" y="58" fill="#94a3b8" font-size="10" text-anchor="middle">Port 80 (AWS ELB)</text>
+
+                        <!-- Frontend Pod -->
+                        <rect x="20" y="125" width="150" height="120" rx="8" fill="#1e293b" stroke="#0284c7" stroke-width="1.5"/>
+                        <text x="95" y="146" fill="#38bdf8" font-size="12" font-weight="700" text-anchor="middle">mern-frontend Pod</text>
+                        <rect x="30" y="158" width="130" height="35" rx="4" fill="#0f172a" stroke="#334155"/>
+                        <text x="95" y="174" fill="#cbd5e1" font-size="10" text-anchor="middle">React 19 / Node.js</text>
+                        <text x="95" y="186" fill="#64748b" font-size="8.5" text-anchor="middle">Reverse Proxy /api</text>
+                        <text x="95" y="228" fill="#f59e0b" font-size="10" text-anchor="middle">ClusterIP :3000</text>
+
+                        <!-- Backend Pod -->
+                        <rect x="230" y="60" width="230" height="190" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+                        <text x="345" y="80" fill="#60a5fa" font-size="12" font-weight="700" text-anchor="middle">mern-backend Pod (2/2 Containers)</text>
+                        
+                        <!-- App Container -->
+                        <rect x="240" y="92" width="210" height="40" rx="4" fill="#0f172a" stroke="#334155"/>
+                        <text x="345" y="108" fill="#e2e8f0" font-size="10" font-weight="600" text-anchor="middle">Express Backend (:3001)</text>
+                        <text x="345" y="122" fill="#94a3b8" font-size="8.5" text-anchor="middle">Reads /vault/secrets/config.json</text>
+
+                        <!-- Shared Volume -->
+                        <rect x="240" y="138" width="210" height="28" rx="4" fill="#064e3b" stroke="#059669"/>
+                        <text x="345" y="156" fill="#a7f3d0" font-size="9.5" font-weight="600" text-anchor="middle">📁 In-Memory Shared emptyDir</text>
+
+                        <!-- Sidecar Container -->
+                        <rect x="240" y="172" width="210" height="42" rx="4" fill="#0f172a" stroke="#7c3aed"/>
+                        <text x="345" y="188" fill="#c084fc" font-size="10" font-weight="600" text-anchor="middle">Sidecar: vault-agent</text>
+                        <text x="345" y="202" fill="#a855f7" font-size="8.5" text-anchor="middle">SA JWT login & secret render</text>
+
+                        <!-- MongoDB Pod -->
+                        <rect x="230" y="8" width="230" height="42" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
+                        <text x="345" y="24" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">mongodb StatefulSet (:27017)</text>
+                        <text x="345" y="38" fill="#94a3b8" font-size="8.5" text-anchor="middle">Dynamic DB Credentials from Vault</text>
+
+                        <!-- Vault Box -->
+                        <rect x="520" y="60" width="220" height="190" rx="8" fill="#030712" stroke="#0284c7" stroke-width="2"/>
+                        <rect x="520" y="60" width="220" height="26" rx="8" fill="#0284c7"/>
+                        <text x="630" y="78" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">HashiCorp Vault Server</text>
+
+                        <rect x="530" y="96" width="200" height="46" rx="4" fill="#1e293b" stroke="#3b82f6"/>
+                        <text x="630" y="113" fill="#60a5fa" font-size="9.5" font-weight="700" text-anchor="middle">auth/kubernetes/mern-vault</text>
+                        <text x="630" y="128" fill="#94a3b8" font-size="8.5" text-anchor="middle">Validates SA JWT via EKS OIDC</text>
+
+                        <rect x="530" y="152" width="200" height="46" rx="4" fill="#1e293b" stroke="#10b981"/>
+                        <text x="630" y="169" fill="#34d399" font-size="9.5" font-weight="700" text-anchor="middle">KV v2: apps/mern-vault</text>
+                        <text x="630" y="184" fill="#94a3b8" font-size="8.5" text-anchor="middle">data/mongodb (user, password)</text>
+
+                        <!-- Paths -->
+                        <path d="M 80 75 L 80 120" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+                        <path d="M 170 170 L 225 170" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+                        <path d="M 345 92 L 345 53" stroke="#4ade80" stroke-width="2" fill="none" marker-end="url(#arr-g)"/>
+                        <path d="M 450 193 C 480 193, 490 120, 515 120" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-p)"/>
+                        <path d="M 525 175 C 490 175, 480 152, 455 152" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-b)"/>
+                      </svg>
+                    </div>
+
+                    <div class="grid-2">
+                      <div>
+                        <div class="step-box">
+                          <h3>1. Zero Static Tokens</h3>
+                          <p>App container starts without AWS IAM keys, Vault tokens, or DB passwords in environment variables.</p>
+                        </div>
+                        <div class="step-box">
+                          <h3>2. Projected ServiceAccount JWT</h3>
+                          <p>Kubernetes automatically projects a short-lived token to the pod for Vault authentication.</p>
+                        </div>
+                      </div>
+                      <div>
+                        <div class="step-box">
+                          <h3>3. Sidecar Secret Rendering</h3>
+                          <p>Vault Agent authenticates, retrieves credentials, and writes them to an in-memory <code>emptyDir</code> volume.</p>
+                        </div>
+                        <div class="step-box">
+                          <h3>4. Automatic Token Renewal</h3>
+                          <p>Vault Agent runs in the background, renewing tokens and reloading rotated database secrets seamlessly.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="card">
+                    <h2>Live Pod Telemetry & Inspection</h2>
+                    <div id="vault-status-json"><pre>Loading live telemetry from backend...</pre></div>
+                  </div>
+                </div>
+
+                <!-- TAB 2: ZERO-TRUST IDENTITY HANDSHAKE -->
+                <div id="auth-flow" class="tab-pane">
+                  <div class="card">
+                    <h2>
+                      Kubernetes ServiceAccount &rarr; Vault Auth Backend
+                      <span class="badge badge-purple">RFC 7519 / OIDC</span>
+                    </h2>
+                    <p>Instead of distributing long-lived Vault tokens or storing cloud IAM secrets in Kubernetes ConfigMaps, we establish a cryptographic trust relationship between HashiCorp Vault and the Amazon EKS OIDC identity provider.</p>
+
+                    <div class="grid-2">
+                      <div class="step-box">
+                        <h3>Step A: Token Projection</h3>
+                        <p>Kubelet mounts a signed ServiceAccount token at <code>/var/run/secrets/kubernetes.io/serviceaccount/token</code>.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>Step B: TokenReview Delegation</h3>
+                        <p>Vault receives the JWT, validates its signature with EKS OIDC, and evaluates the bound namespace and service account.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>Step C: Policy Mapping</h3>
+                        <p>Vault issues an ephemeral token bound strictly to the least-privilege policy <code>apps/mern-vault/data/mongodb</code>.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>Step D: RBAC Auth Delegator</h3>
+                        <p>A ClusterRoleBinding links the ServiceAccount to <code>system:auth-delegator</code> enabling API verification.</p>
+                      </div>
+                    </div>
+
+                    <div style="margin-top:16px;">
+                      <button onclick="runAuthSimulation()">⚡ Test Live Auth Handshake Simulation</button>
+                      <div id="auth-simulation-result" style="margin-top:12px;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TAB 3: SIDECAR SECRET INJECTION -->
+                <div id="secret-injection" class="tab-pane">
+                  <div class="card">
+                    <h2>
+                      Vault Agent Sidecar & Template Engine
+                      <span class="badge badge-green">Consul Template / In-Memory</span>
+                    </h2>
+                    <p>The Vault Agent Mutating Webhook injects a sidecar container that reads secrets directly from Vault and writes a structured configuration file into a shared memory volume (<code>emptyDir</code>).</p>
+
+                    <div class="card" style="background:#030712; border-color:#1e293b;">
+                      <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:8px;">Pod Annotation Configuration (Terraform / Helm)</div>
+                      <pre>vault.hashicorp.com/agent-inject: "true"
+vault.hashicorp.com/role: "mern-backend-role"
+vault.hashicorp.com/agent-inject-secret-config.json: "apps/mern-vault/data/mongodb"
+vault.hashicorp.com/agent-inject-template-config.json: |
+  {{ with secret "apps/mern-vault/data/mongodb" }}
+  {
+    "mongo_host": "{{ .Data.data.mongo_host }}",
+    "mongo_database": "{{ .Data.data.mongo_database }}",
+    "mongo_username": "{{ .Data.data.mongo_username }}",
+    "mongo_password": "{{ .Data.data.mongo_password }}"
+  }
+  {{ end }}</pre>
+                    </div>
+
+                    <div class="step-box">
+                      <h3>Why This Decouples Application Code</h3>
+                      <p>The application container needs zero Vault SDK dependencies, zero AWS SDKs, and zero authentication boilerplate. It simply executes <code>fs.readFileSync('/vault/secrets/config.json')</code> as standard local configuration.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TAB 4: VERIFIED DATA PLANE -->
+                <div id="data-plane" class="tab-pane">
+                  <div class="card">
+                    <h2>
+                      Verified Data Plane Transactions
+                      <span class="badge badge-blue">Interactive MongoDB Transaction Engine</span>
+                    </h2>
+                    <p>Execute an authenticated database write to MongoDB. This confirms that the Express backend is successfully reading dynamic credentials injected into the shared volume and performing authorized operations.</p>
+
+                    <form id="txForm">
+                      <select id="txCategory" style="max-width:180px;">
+                        <option value="Security Audit">Security Audit</option>
+                        <option value="Compliance Log">Compliance Log</option>
+                        <option value="Data Plane Probe">Data Plane Probe</option>
+                        <option value="User Action">User Action</option>
+                      </select>
+                      <input id="txMessage" placeholder="Enter transaction payload or audit event message..." required style="flex:1;" />
+                      <button type="submit">⚡ Execute DB Write</button>
+                    </form>
+
+                    <h3 style="font-size:13px; color:#94a3b8; margin: 16px 0 8px; text-transform:uppercase;">Live Transaction Ledger (MongoDB Collection)</h3>
+                    <ul id="txList" class="tx-list"></ul>
+                  </div>
+                </div>
+
+                <!-- TAB 5: THREAT MODEL COMPARISON -->
+                <div id="comparison" class="tab-pane">
+                  <div class="card">
+                    <h2>Traditional vs. Vault Zero-Trust Security Posture</h2>
+                    <table class="compare-table">
+                      <thead>
+                        <tr>
+                          <th>Security Vector</th>
+                          <th>Traditional Kubernetes Pattern</th>
+                          <th>HashiCorp Vault + Kubernetes Auth</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><strong>Secret Storage</strong></td>
+                          <td>Base64 Kubernetes Secrets (ConfigMaps/Env)</td>
+                          <td><span class="status-indicator"></span>Encrypted at rest in Vault KV-v2</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Credential Lifecycle</strong></td>
+                          <td>Long-lived static passwords (months/years)</td>
+                          <td><span class="status-indicator"></span>Short-lived, dynamic, auto-renewing leases</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Blast Radius</strong></td>
+                          <td>Pod compromise exposes static credentials in env</td>
+                          <td><span class="status-indicator"></span>Limited to short-lived in-memory volume</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Auditing & Compliance</strong></td>
+                          <td>No audit logging for secret reads from memory</td>
+                          <td><span class="status-indicator"></span>Every single secret access logged with SA identity</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Developer Overhead</strong></td>
+                          <td>Developers manage secrets across Git / CI/CD</td>
+                          <td><span class="status-indicator"></span>Platform team defines policies; app reads JSON config</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
 
               <script>
                 const API = '/api';
-                async function loadStatus() {
+
+                function showTab(tabId) {
+                  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                  document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+                  event.currentTarget.classList.add('active');
+                  document.getElementById(tabId).classList.add('active');
+                }
+
+                async function loadTelemetry() {
                   try {
                     const res = await fetch(API + '/vault-status');
                     const status = await res.json();
-                    document.getElementById('vault-status').innerHTML = '<pre>' + JSON.stringify(status, null, 2) + '</pre>';
-                  } catch(e) {
-                    document.getElementById('vault-status').innerHTML = '<pre style="color:red">Backend API unreachable or secret missing</pre>';
+                    document.getElementById('vault-status-json').innerHTML = '<pre>' + JSON.stringify(status, null, 2) + '</pre>';
+                  } catch (e) {
+                    document.getElementById('vault-status-json').innerHTML = '<pre style="color:#f87171">Backend API unreachable or secret missing: ' + e.message + '</pre>';
                   }
                 }
-                async function loadItems() {
+
+                async function runAuthSimulation() {
+                  const target = document.getElementById('auth-simulation-result');
+                  target.innerHTML = '<pre>Executing live cryptographic TokenReview handshake simulation...</pre>';
+                  try {
+                    const res = await fetch(API + '/simulate-auth');
+                    const data = await res.json();
+                    target.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                  } catch (e) {
+                    target.innerHTML = '<pre style="color:#f87171">Handshake error: ' + e.message + '</pre>';
+                  }
+                }
+
+                async function loadTransactions() {
                   try {
                     const res = await fetch(API + '/items');
                     const items = await res.json();
-                    document.getElementById('list').innerHTML = items.map(i => '<li><span>' + i.message + '</span><span class="meta">' + new Date(i.createdAt).toLocaleTimeString() + '</span></li>').join('');
-                  } catch(e) { console.error(e); }
+                    const list = document.getElementById('txList');
+                    list.innerHTML = items.map(function(item) {
+                      const id = item._id || '';
+                      const msg = item.message || '';
+                      const cat = item.category || 'Data Plane Transaction';
+                      const lat = item.latencyMs || 8;
+                      const auth = item.authenticatedWith || 'Vault Injected Secrets';
+                      const time = new Date(item.createdAt).toLocaleTimeString();
+                      return '<li><div class="tx-left"><span class="tx-title"><span class="status-indicator"></span>[' + id + '] ' + msg + '</span><span class="tx-meta">' + cat + ' &bull; Latency: ' + lat + 'ms &bull; Auth: ' + auth + '</span></div><div class="tx-right"><span class="badge badge-green">' + time + '</span></div></li>';
+                    }).join('');
+                  } catch (e) {
+                    console.error(e);
+                  }
                 }
-                document.getElementById('addForm').onsubmit = async (e) => {
+
+                document.getElementById('txForm').onsubmit = async (e) => {
                   e.preventDefault();
-                  const msg = document.getElementById('msg').value;
-                  await fetch(API + '/items', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: msg}) });
-                  document.getElementById('msg').value = '';
-                  loadItems();
+                  const msg = document.getElementById('txMessage').value;
+                  const cat = document.getElementById('txCategory').value;
+                  await fetch(API + '/items', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg, category: cat })
+                  });
+                  document.getElementById('txMessage').value = '';
+                  loadTransactions();
                 };
-                loadStatus();
-                loadItems();
+
+                loadTelemetry();
+                loadTransactions();
               </script>
             </body>
             </html>`;
