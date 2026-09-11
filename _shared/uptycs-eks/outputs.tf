@@ -15,5 +15,5 @@ output "tag_string" {
 
 output "node_uuid_command" {
   description = "kubectl command to retrieve node UUIDs for Uptycs verification."
-  value       = "kubectl get nodes -o=jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.status.nodeInfo.systemUUID}{\"\\n\"}{end}'"
+  value       = "kubectl get nodes -o=jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.metadata.labels.ibm-cloud\\.kubernetes\\.io/worker-id}{\"\\t\"}{.status.nodeInfo.systemUUID}{\"\\n\"}{end}'"
 }

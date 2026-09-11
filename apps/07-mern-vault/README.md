@@ -97,7 +97,7 @@ kubectl exec -n mern-vault deploy/mern-backend -c mern-backend -- cat /vault/sec
 kubectl logs -n mern-vault deploy/mern-backend -c vault-agent --tail=20
 
 # 5. Retrieve Kubernetes node UUIDs for IBM CISO Uptycs verification
-kubectl get nodes -o=jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.systemUUID}{"\n"}{end}'
+kubectl get nodes -o=jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.ibm-cloud\.kubernetes\.io/worker-id}{"\t"}{.status.nodeInfo.systemUUID}{"\n"}{end}'
 
 # 6. Open the web UI in your browser
 kubectl get svc mern-frontend -n mern-vault
