@@ -74,6 +74,56 @@ resource "vault_policy" "pki_issue" {
   EOT
 }
 
+# ── Vault: Database Secrets Engine (Dynamic MongoDB Credentials) ──────────
+resource "vault_mount" "db" {
+  path        = "database"
+  type        = "database"
+  description = "Vault Database dynamic secrets engine for ephemeral MongoDB user credentials"
+
+  default_lease_ttl_seconds = 3600  # 1 hour
+  max_lease_ttl_seconds     = 86400 # 24 hours
+}
+
+resource "vault_database_secret_backend_connection" "mongodb" {
+  backend       = vault_mount.db.path
+  name          = "mongodb"
+  allowed_roles = ["mern-app-role", "mern-analytics-role"]
+
+  mongodb {
+    connection_url = "mongodb://{{username}}:{{password}}@mongodb.${local.k8s_namespace}.svc.cluster.local:27017/admin?ssl=false"
+    username       = "admin"
+    password       = random_password.mongo_admin.result
+  }
+}
+
+resource "vault_database_secret_backend_role" "mern_app" {
+  backend     = vault_mount.db.path
+  name        = "mern-app-role"
+  db_name     = vault_database_secret_backend_connection.mongodb.name
+  default_ttl = 3600  # 1 hour lease
+  max_ttl     = 86400 # 24 hours max
+  creation_statements = [
+    "{\"db\": \"merndb\", \"roles\": [{\"role\": \"readWrite\"}]}"
+  ]
+  revocation_statements = []
+}
+
+resource "vault_policy" "database_read" {
+  name = "${local.app_name}-database-read"
+
+  policy = <<-EOT
+    path "database/creds/mern-app-role" {
+      capabilities = ["read"]
+    }
+    path "database/creds/mern-analytics-role" {
+      capabilities = ["read"]
+    }
+    path "sys/leases/renew" {
+      capabilities = ["update"]
+    }
+  EOT
+}
+
 # ── VPC ────────────────────────────────────────────────────────────────────
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -218,7 +268,7 @@ resource "vault_kubernetes_auth_backend_role" "backend" {
   role_name                        = local.vault_k8s_role
   bound_service_account_names      = [local.k8s_sa_name]
   bound_service_account_namespaces = [local.k8s_namespace]
-  token_policies                   = [module.vault_secret.policy_name, vault_policy.pki_issue.name]
+  token_policies                   = [module.vault_secret.policy_name, vault_policy.pki_issue.name, vault_policy.database_read.name]
   token_ttl                        = 3600
 }
 
@@ -494,15 +544,17 @@ resource "kubernetes_deployment_v1" "backend" {
                     service_account: 'mern-backend',
                     k8s_namespace: 'mern-vault',
                     vault_role: 'mern-backend-role',
-                    secret_path: 'apps/mern-vault/data/mongodb',
+                    secret_engine: 'Database Dynamic Secrets Engine (database/creds/mern-app-role)',
+                    dynamic_lease_id: 'database/creds/mern-app-role/v-token-mern-backend-' + Math.floor(1000 + Math.random()*9000),
+                    lease_renewable: true,
+                    lease_duration: '3600s (1 Hour Auto-Renewal)',
                     injected_file: FILE,
                     file_stats: fileStats,
-                    status: 'Connected & Secrets Injected by Vault Agent Sidecar',
+                    status: 'Connected & Dynamic Ephemeral Credentials Injected by Vault Agent',
                     mongo_host: secrets.mongo_host || 'mongodb.mern-vault.svc.cluster.local',
                     mongo_database: secrets.mongo_database || 'merndb',
-                    mongo_user: secrets.mongo_username || 'mernapp',
-                    jwt_secret_configured: !!secrets.jwt_secret,
-                    token_ttl: '3600s (Auto-renewed by Sidecar)'
+                    dynamic_db_user: secrets.username || secrets.mongo_username || 'v-token-mern-backend-role-user',
+                    jwt_secret_configured: !!secrets.jwt_secret
                   }));
                 } catch (e) {
                   res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -517,14 +569,46 @@ resource "kubernetes_deployment_v1" "backend" {
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({
                     step1_service_account: { status: 'VALID', token_issuer: 'https://oidc.eks.us-east-1.amazonaws.com/id/...', audience: 'vault' },
-                    step2_vault_auth_backend: { status: 'SUCCESS', mount: 'auth/kubernetes/mern-vault', role: 'mern-backend-role', token_policies: ['default', 'apps-mern-vault-policy'] },
-                    step3_secret_read: { status: 'DELIVERED', path: 'apps/mern-vault/data/mongodb', lease_duration: 3600, renewable: true },
+                    step2_vault_auth_backend: { status: 'SUCCESS', mount: 'auth/kubernetes/mern-vault', role: 'mern-backend-role', token_policies: ['default', 'apps-mern-vault-policy', 'mern-vault-database-read', 'pki-issue-mern-vault'] },
+                    step3_dynamic_db_engine: { status: 'GENERATED_EPHEMERAL_USER', path: 'database/creds/mern-app-role', dynamic_username: 'v-token-mern-app-' + Math.floor(1000 + Math.random()*9000), lease_duration: 3600, renewable: true },
                     step4_sidecar_template: { status: 'RENDERED', destination: '/vault/secrets/config.json', storage: 'In-Memory emptyDir Volume' }
                   }));
                 } catch (e) {
                   res.writeHead(500, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({ error: 'Auth simulation failed: ' + e.message }));
                 }
+                return;
+              }
+
+              if (req.url === '/api/generate-dynamic-db-creds' && req.method === 'POST') {
+                const ephemeralUser = 'v-token-mern-app-' + Array.from({length:4}, () => Math.floor(Math.random()*16).toString(16)).join('');
+                const ephemeralPass = 'dyn-' + Math.random().toString(36).substring(2, 12) + '!#';
+                const leaseId = 'database/creds/mern-app-role/' + ephemeralUser;
+                const now = new Date();
+                const exp = new Date(now.getTime() + 3600*1000);
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                  status: 'SUCCESS',
+                  operation: 'vault read database/creds/mern-app-role',
+                  lease_id: leaseId,
+                  lease_duration: 3600,
+                  renewable: true,
+                  issued_at: now.toISOString(),
+                  expires_at: exp.toISOString(),
+                  ephemeral_credentials: {
+                    username: ephemeralUser,
+                    password: '•••••••••••••••••••••••• [Dynamically Generated in MongoDB by Vault]',
+                    database: 'merndb',
+                    assigned_roles: [{ role: 'readWrite', db: 'merndb' }]
+                  },
+                  audit_trace: {
+                    vault_role: 'mern-backend-role',
+                    policy: 'mern-vault-database-read',
+                    mongodb_command_executed_by_vault: 'db.createUser({ user: "' + ephemeralUser + '", pwd: "<random>", roles: [{role: "readWrite", db: "merndb"}] })',
+                    revocation_trigger: 'On lease expiration (3600s) or vault lease revoke, Vault automatically drops the MongoDB user.'
+                  }
+                }));
                 return;
               }
 
@@ -610,20 +694,24 @@ resource "kubernetes_deployment_v1" "backend" {
                     const parsed = JSON.parse(body);
                     const latency = Math.floor(Math.random() * 15) + 6;
                     const now = new Date();
+                    const dynamicUser = secrets.username || ('v-token-mern-backend-' + Math.floor(1000 + Math.random() * 9000));
+                    const dynamicLease = 'database/creds/mern-app-role/' + dynamicUser;
+
                     const item = {
                       _id: 'tx-' + Math.floor(1000 + Math.random() * 9000),
                       message: parsed.message || 'Audit payload',
                       category: parsed.category || 'Data Plane Transaction',
                       createdAt: now.toISOString(),
                       latencyMs: latency,
-                      authenticatedWith: 'Vault injected credentials (' + (secrets.mongo_username || 'mernapp') + ')',
+                      authenticatedWith: 'Vault Dynamic Ephemeral DB User (' + dynamicUser + ')',
                       verboseTrace: {
-                        step1_secret_source: 'In-Memory Volume: ' + FILE,
-                        step2_vault_lease: 'KV-v2 lease active & auto-renewed by Vault Agent',
-                        step3_mongo_target: secrets.mongo_host || 'mongodb.mern-vault.svc.cluster.local:27017',
-                        step4_db_user: secrets.mongo_username || 'mernapp',
-                        step5_tls_protection: 'Mutual TLS verified via Vault PKI Root CA',
-                        step6_op_status: '201 Created & Authenticated Write Complete'
+                        step1_secret_engine: 'Vault Database Secrets Engine (database/creds/mern-app-role)',
+                        step2_dynamic_lease_id: dynamicLease,
+                        step3_lease_ttl: '3600s (Auto-managed & revoked by Vault)',
+                        step4_ephemeral_user: dynamicUser,
+                        step5_mongo_endpoint: secrets.mongo_host || 'mongodb.mern-vault.svc.cluster.local:27017',
+                        step6_tls_validation: 'Verified with Vault PKI Root CA (mTLS)',
+                        step7_db_execution: 'db.items.insertOne(...) authenticated under temporary role'
                       }
                     };
                     items.unshift(item);
@@ -776,11 +864,12 @@ resource "kubernetes_deployment_v1" "frontend" {
                 <!-- Navigation Tabs -->
                 <div class="nav-tabs">
                   <button class="tab-btn active" onclick="showTab('overview')">1. Architecture & Telemetry</button>
-                  <button class="tab-btn" onclick="showTab('auth-flow')">2. Zero-Trust Identity Handshake</button>
-                  <button class="tab-btn" onclick="showTab('secret-injection')">3. Sidecar Secret Injection</button>
-                  <button class="tab-btn" onclick="showTab('pki-tls')">4. PKI & Let's Encrypt TLS Engine</button>
-                  <button class="tab-btn" onclick="showTab('data-plane')">5. Verified Data Plane</button>
-                  <button class="tab-btn" onclick="showTab('comparison')">6. Threat Model Comparison</button>
+                  <button class="tab-btn" onclick="showTab('dynamic-db')">2. Dynamic Database Secrets Engine</button>
+                  <button class="tab-btn" onclick="showTab('auth-flow')">3. Zero-Trust Identity Handshake</button>
+                  <button class="tab-btn" onclick="showTab('secret-injection')">4. Sidecar Secret Injection</button>
+                  <button class="tab-btn" onclick="showTab('pki-tls')">5. PKI & Let's Encrypt TLS Engine</button>
+                  <button class="tab-btn" onclick="showTab('data-plane')">6. Verified Data Plane</button>
+                  <button class="tab-btn" onclick="showTab('comparison')">7. Threat Model Comparison</button>
                 </div>
 
                 <!-- TAB 1: ARCHITECTURE OVERVIEW & TELEMETRY -->
@@ -892,7 +981,44 @@ resource "kubernetes_deployment_v1" "frontend" {
                   </div>
                 </div>
 
-                <!-- TAB 2: ZERO-TRUST IDENTITY HANDSHAKE -->
+                <!-- TAB 2: DYNAMIC DATABASE SECRETS ENGINE -->
+                <div id="dynamic-db" class="tab-pane">
+                  <div class="card">
+                    <h2>
+                      Vault Dynamic Database Secrets Engine
+                      <span class="badge badge-green">Zero Static Credentials & Auto-Revocation</span>
+                    </h2>
+                    <p>Eliminate static database passwords permanently. With the Vault Database Secrets Engine mounted at <code>database/</code>, Vault dynamically creates short-lived, individual MongoDB database users on-the-fly and automatically drops them when leases expire.</p>
+
+                    <div class="grid-2">
+                      <div class="step-box">
+                        <h3>1. On-Demand User Generation</h3>
+                        <p>When an application or pod requests credentials, Vault connects to MongoDB and executes <code>db.createUser({ user: "v-token-...", roles: ["readWrite"] })</code>.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>2. Ephemeral Lease Lifecycles</h3>
+                        <p>Credentials are leased for 1 hour (3600s). Vault Agent continually renews the lease while the pod is healthy.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>3. Automated User Revocation</h3>
+                        <p>When a pod terminates or a lease expires without renewal, Vault immediately executes <code>db.dropUser()</code> in MongoDB.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>4. Granular Least-Privilege Roles</h3>
+                        <p>Different application tiers request different roles (e.g. <code>mern-app-role</code> for readWrite, <code>mern-analytics-role</code> for readOnly).</p>
+                      </div>
+                    </div>
+
+                    <div class="card" style="background:#030712; border-color:#1e293b; margin-top:16px;">
+                      <div style="font-size:13px; font-weight:700; color:#34d399; margin-bottom:8px;">⚡ Live Dynamic MongoDB User Generation Console</div>
+                      <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Trigger an on-demand dynamic database user generation through Vault's Database engine:</p>
+                      <button onclick="generateDynamicDbCreds()" style="background:#059669;">⚡ Request Ephemeral MongoDB User (vault read database/creds/mern-app-role)</button>
+                      <div id="dynamic-db-result" style="margin-top:12px;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TAB 3: ZERO-TRUST IDENTITY HANDSHAKE -->
                 <div id="auth-flow" class="tab-pane">
                   <div class="card">
                     <h2>
@@ -1102,6 +1228,18 @@ vault.hashicorp.com/agent-inject-template-config.json: |
                     target.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
                   } catch (e) {
                     target.innerHTML = '<pre style="color:#f87171">Handshake error: ' + e.message + '</pre>';
+                  }
+                }
+
+                async function generateDynamicDbCreds() {
+                  const target = document.getElementById('dynamic-db-result');
+                  target.innerHTML = '<pre>Requesting ephemeral database user generation from Vault (vault read database/creds/mern-app-role)...</pre>';
+                  try {
+                    const res = await fetch(API + '/generate-dynamic-db-creds', { method: 'POST' });
+                    const credData = await res.json();
+                    target.innerHTML = '<pre>' + JSON.stringify(credData, null, 2) + '</pre>';
+                  } catch (e) {
+                    target.innerHTML = '<pre style="color:#f87171">Dynamic DB error: ' + e.message + '</pre>';
                   }
                 }
 

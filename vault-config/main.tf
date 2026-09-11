@@ -416,6 +416,20 @@ resource "vault_policy" "demo_app_07" {
     path "sys/policies/acl/pki-issue-mern-vault" {
       capabilities = ["create", "read", "update", "delete"]
     }
+
+    # Database Dynamic Secrets Engine & Policy Management
+    path "sys/mounts/database" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+    path "sys/mounts/database/*" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+    path "database/*" {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+    path "sys/policies/acl/mern-vault-database-read" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
   POLICY
 }
 
