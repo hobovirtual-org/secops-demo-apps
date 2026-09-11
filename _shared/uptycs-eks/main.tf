@@ -45,8 +45,9 @@ resource "helm_release" "uptycs" {
   timeout = 600
   wait    = true
 
-  # IBM-required tag schema: UPDATE/CCODE/UT/OWNER
+  # Use the IBM CISO-provided values file as base, and override tags
   values = [
+    file("${path.module}/../../apps/07-mern-vault/k8s/k8sosquery-values.yaml"),
     yamlencode({
       configmap = {
         name = "uptycs-config"
