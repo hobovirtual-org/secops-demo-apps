@@ -22,26 +22,34 @@
 
 ## Architecture & Secret Injection Flow
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│ Amazon EKS Cluster (v1.32)                                                       │
-│                                                                                  │
-│  User Browser                                                                    │
-│    │                                                                             │
-│    ▼ (Port 80 via AWS LoadBalancer)                                              │
-│  mern-frontend (Node 20 / UBI 9 Minimal)                                         │
-│    │                                                                             │
-│    ▼ (Port 3001 via ClusterIP)                                                   │
-│  mern-backend (Node 20 / UBI 9 Minimal)                                          │
-│    ├── Pod Init: vault-agent-init (Auths to Vault via K8s SA JWT)                │
-│    ├── RoleBinding: system:auth-delegator (RBAC for TokenReview API)             │
-│    ├── Sidecar: vault-agent (Injects /vault/secrets/config.json)                 │
-│    │                                                                             │
-│    ▼ (Port 27017)                                                                │
-│  mongodb (StatefulSet / UBI 9 Minimal)                                           │
-│                                                                                  │
-│  DaemonSet: Uptycs EDR Sensor (Optional CISO Compliance monitoring)             │
-└──────────────────────────────────────────────────────────────────────────────────┘
+![MERN + Vault Architecture](architecture.svg)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Browser
+    participant FE as Frontend Pod (React 19)
+    participant BE as Backend Pod (Express)
+    participant Sidecar as Vault Agent Sidecar
+    participant Vault as HashiCorp Vault Server
+    participant DB as MongoDB StatefulSet
+
+    Note over BE,Sidecar: Pod Startup & Injection
+    Sidecar->>Vault: Authenticate with Kubernetes SA JWT (auth/kubernetes/mern-vault)
+    Vault->>Vault: Verify JWT via EKS OIDC Issuer & RBAC TokenReview
+    Vault-->>Sidecar: Return short-lived Vault Token (1h TTL)
+    Sidecar->>Vault: Read secret (apps/mern-vault/data/mongodb)
+    Vault-->>Sidecar: Return credentials {mongo_username, mongo_password, jwt_secret}
+    Sidecar->>BE: Render to shared volume (/vault/secrets/config.json)
+    
+    Note over User,DB: Application Request Flow
+    User->>FE: Open Web UI (LoadBalancer :80)
+    FE->>BE: API Request (ClusterIP :3001)
+    BE->>BE: Read /vault/secrets/config.json
+    BE->>DB: Query/Write Items (Port :27017)
+    DB-->>BE: Query Result
+    BE-->>FE: JSON Response {status, items}
+    FE-->>User: Render Dashboard & Security Flow
 ```
 
 1. **Vault Secret Provisioning**: Terraform generates a secure random password and writes credentials to Vault KV v2 at `apps/mern-vault/data/mongodb`.

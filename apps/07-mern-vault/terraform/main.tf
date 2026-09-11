@@ -565,7 +565,88 @@ resource "kubernetes_deployment_v1" "frontend" {
                 <h1>MERN + Vault Security Flow</h1>
                 <p>Zero static tokens, dynamic Kubernetes ServiceAccount authentication & sidecar secret rendering.</p>
                 
-                <h2>Security & Authentication Architecture</h2>
+                <h2>Interactive Architecture & Communication Flow</h2>
+                <div style="background:#0f172a; border-radius:8px; padding:12px; margin-bottom:16px; overflow-x:auto;">
+                  <svg viewBox="0 0 760 300" width="100%" height="240" style="min-width:600px; display:block; margin:auto;">
+                    <defs>
+                      <marker id="arr-b" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8"/>
+                      </marker>
+                      <marker id="arr-g" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 8 5 L 0 9 z" fill="#4ade80"/>
+                      </marker>
+                      <marker id="arr-p" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 8 5 L 0 9 z" fill="#c084fc"/>
+                      </marker>
+                    </defs>
+
+                    <!-- User Box -->
+                    <rect x="20" y="20" width="120" height="60" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+                    <text x="80" y="44" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Browser / User</text>
+                    <text x="80" y="62" fill="#94a3b8" font-size="10" text-anchor="middle">Port 80 (ELB)</text>
+
+                    <!-- Frontend Pod -->
+                    <rect x="20" y="140" width="150" height="130" rx="8" fill="#1e293b" stroke="#0284c7" stroke-width="1.5"/>
+                    <text x="95" y="162" fill="#38bdf8" font-size="12" font-weight="700" text-anchor="middle">mern-frontend Pod</text>
+                    <rect x="30" y="175" width="130" height="40" rx="4" fill="#0f172a" stroke="#334155"/>
+                    <text x="95" y="193" fill="#cbd5e1" font-size="10" text-anchor="middle">React 19 / Node.js</text>
+                    <text x="95" y="207" fill="#64748b" font-size="9" text-anchor="middle">Proxy API to backend</text>
+                    <text x="95" y="245" fill="#f59e0b" font-size="10" text-anchor="middle">ClusterIP :3000</text>
+
+                    <!-- Backend Pod -->
+                    <rect x="230" y="70" width="230" height="200" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+                    <text x="345" y="92" fill="#60a5fa" font-size="12" font-weight="700" text-anchor="middle">mern-backend Pod (2/2)</text>
+                    
+                    <!-- App Container -->
+                    <rect x="240" y="105" width="210" height="45" rx="4" fill="#0f172a" stroke="#334155"/>
+                    <text x="345" y="123" fill="#e2e8f0" font-size="10" font-weight="600" text-anchor="middle">Express Backend (:3001)</text>
+                    <text x="345" y="138" fill="#94a3b8" font-size="9" text-anchor="middle">Reads /vault/secrets/config.json</text>
+
+                    <!-- Shared Volume -->
+                    <rect x="240" y="157" width="210" height="30" rx="4" fill="#064e3b" stroke="#059669"/>
+                    <text x="345" y="176" fill="#a7f3d0" font-size="10" font-weight="600" text-anchor="middle">📁 Injected config.json (emptyDir)</text>
+
+                    <!-- Sidecar Container -->
+                    <rect x="240" y="195" width="210" height="45" rx="4" fill="#0f172a" stroke="#7c3aed"/>
+                    <text x="345" y="213" fill="#c084fc" font-size="10" font-weight="600" text-anchor="middle">Sidecar: vault-agent</text>
+                    <text x="345" y="228" fill="#a855f7" font-size="9" text-anchor="middle">SA JWT login & secret render</text>
+
+                    <!-- MongoDB Pod -->
+                    <rect x="230" y="10" width="230" height="45" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
+                    <text x="345" y="28" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">mongodb (Headless :27017)</text>
+                    <text x="345" y="44" fill="#94a3b8" font-size="9" text-anchor="middle">DB Auth via Vault generated password</text>
+
+                    <!-- Vault Box -->
+                    <rect x="520" y="70" width="220" height="200" rx="8" fill="#0f172a" stroke="#0284c7" stroke-width="2"/>
+                    <rect x="520" y="70" width="220" height="28" rx="8" fill="#0284c7"/>
+                    <text x="630" y="89" fill="#ffffff" font-size="12" font-weight="700" text-anchor="middle">HashiCorp Vault Server</text>
+
+                    <rect x="530" y="110" width="200" height="50" rx="4" fill="#1e293b" stroke="#3b82f6"/>
+                    <text x="630" y="128" fill="#60a5fa" font-size="10" font-weight="700" text-anchor="middle">auth/kubernetes/mern-vault</text>
+                    <text x="630" y="145" fill="#94a3b8" font-size="9" text-anchor="middle">Validates SA JWT with EKS OIDC</text>
+
+                    <rect x="530" y="170" width="200" height="50" rx="4" fill="#1e293b" stroke="#10b981"/>
+                    <text x="630" y="188" fill="#34d399" font-size="10" font-weight="700" text-anchor="middle">KV v2: apps/mern-vault</text>
+                    <text x="630" y="205" fill="#94a3b8" font-size="9" text-anchor="middle">data/mongodb (user, password)</text>
+
+                    <!-- Arrows -->
+                    <!-- Browser to FE -->
+                    <path d="M 80 80 L 80 135" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+                    
+                    <!-- FE to BE -->
+                    <path d="M 170 185 L 225 185" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+
+                    <!-- BE to MongoDB -->
+                    <path d="M 345 105 L 345 60" stroke="#4ade80" stroke-width="2" fill="none" marker-end="url(#arr-g)"/>
+
+                    <!-- Sidecar to Vault Auth (dashed purple) -->
+                    <path d="M 450 215 C 480 215, 490 135, 515 135" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-p)"/>
+
+                    <!-- Vault KV to Volume (dashed blue) -->
+                    <path d="M 525 195 C 490 195, 480 172, 455 172" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-b)"/>
+                  </svg>
+                </div>
+
                 <div class="flow-step">
                   <span>1. <strong>Identity:</strong> Pod Projected ServiceAccount Token</span>
                   <span class="badge badge-purple">Kubernetes JWT</span>
