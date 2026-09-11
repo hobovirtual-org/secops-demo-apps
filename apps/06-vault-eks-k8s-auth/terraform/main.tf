@@ -134,6 +134,10 @@ resource "helm_release" "vault_agent_injector" {
       name  = "injector.externalVaultAddr"
       value = var.vault_address
     },
+    {
+      name  = "injector.hostNetwork"
+      value = "true"
+    },
   ]
 }
 
