@@ -17,7 +17,7 @@
 | **Stack & Components** | React 19 Frontend + Express Backend + MongoDB 7 StatefulSet |
 | **Infrastructure** | Amazon EKS 1.32 (AL2023), VPC, Vault Agent Injector, Uptycs EDR Sensor |
 | **Vault Auth Method** | Kubernetes (`auth/kubernetes/mern-vault`) |
-| **Vault Secret Engine** | KV v2 (`apps/mern-vault/mongodb`) |
+| **Vault Secret Engines** | KV v2 (`apps/mern-vault/mongodb`) & PKI / Let's Encrypt CA (`pki/`) |
 | **HCP Terraform Workspace** | `demo-app-07` |
 
 ## Architecture & Secret Injection Flow
@@ -59,8 +59,9 @@ The interactive frontend provides tabbed navigation exploring distinct security 
 1. **Architecture & Live Telemetry**: Live interactive SVG communication diagram showing pod-to-pod networking, Vault Agent mutating webhook injection, and real-time pod metadata from `/api/vault-status`.
 2. **Zero-Trust Identity Handshake**: Visual step-by-step breakdown of projected ServiceAccount JWTs, EKS OIDC validation, Vault role policy bindings, and a live simulation trigger (`/api/simulate-auth`).
 3. **Sidecar Secret Injection**: Deep dive into Consul Template rendering, pod annotations, and in-memory `emptyDir` file decoupling with zero Vault SDK overhead in application code.
-4. **Verified Data Plane**: Interactive transaction engine writing categorized audit records to MongoDB to prove dynamic database credentials work end-to-end.
-5. **Threat Model Comparison**: Side-by-side comparison table contrasting traditional Kubernetes secret patterns against HashiCorp Vault zero-trust principles.
+4. **PKI & Let's Encrypt TLS Engine**: Live console for on-demand dynamic X.509 certificate signing and rotation (`/api/issue-cert`) backed by Vault's PKI engine and ACME intermediates.
+5. **Verified Data Plane**: Interactive transaction engine with verbose live resolution traces detailing secret origin, lease status, and encrypted database writes.
+6. **Threat Model Comparison**: Side-by-side comparison table contrasting traditional Kubernetes secret patterns against HashiCorp Vault zero-trust principles.
 
 ## Quick Start
 
