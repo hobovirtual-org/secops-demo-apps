@@ -456,7 +456,10 @@ resource "kubernetes_service_v1" "frontend" {
     type = "LoadBalancer"
   }
 
-  depends_on = [kubernetes_namespace_v1.app]
+  depends_on = [
+    kubernetes_namespace_v1.app,
+    module.eks.eks_managed_node_groups,
+  ]
 }
 
 # ── Uptycs EDR sensor (IBM CISO requirement) ──────────────────────────────
