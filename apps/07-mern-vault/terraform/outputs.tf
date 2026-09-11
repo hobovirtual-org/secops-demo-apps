@@ -35,10 +35,10 @@ output "frontend_service" {
 
 output "uptycs_tag_string" {
   description = "IBM tag string applied to the Uptycs sensor — use this for verification."
-  value       = module.uptycs.tag_string
+  value       = try(module.uptycs[0].tag_string, "")
 }
 
 output "uptycs_node_uuid_command" {
   description = "kubectl command to get node UUIDs for Uptycs verification tool."
-  value       = module.uptycs.node_uuid_command
+  value       = try(module.uptycs[0].node_uuid_command, "")
 }

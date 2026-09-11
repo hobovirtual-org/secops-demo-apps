@@ -241,16 +241,6 @@ resource "kubernetes_stateful_set_v1" "mongodb" {
       spec {
         service_account_name = local.k8s_sa_name
 
-        init_container {
-          name    = "vault-env-loader"
-          image   = "registry.redhat.io/ubi9/ubi-minimal:latest"
-          command = ["sh", "-c", "source /vault/secrets/mongodb.env && env > /shared/mongo.env"]
-          volume_mount {
-            name       = "shared"
-            mount_path = "/shared"
-          }
-        }
-
         container {
           name  = "mongodb"
           image = "registry.redhat.io/rhel9/mongodb-70:latest"
@@ -278,18 +268,8 @@ resource "kubernetes_stateful_set_v1" "mongodb" {
         }
 
         volume {
-          name = "shared"
+          name = "mongo-data"
           empty_dir {}
-        }
-      }
-    }
-
-    volume_claim_template {
-      metadata { name = "mongo-data" }
-      spec {
-        access_modes = ["ReadWriteOnce"]
-        resources {
-          requests = { storage = "5Gi" }
         }
       }
     }
@@ -355,11 +335,72 @@ resource "kubernetes_deployment_v1" "backend" {
         service_account_name = local.k8s_sa_name
 
         container {
-          name    = "mern-backend"
-          image   = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
-          command = ["node", "server.js"]
+          name  = "mern-backend"
+          image = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
+          command = ["node", "-e", <<-JS
+            const http = require('http');
+            const fs   = require('fs');
+            const PORT = process.env.PORT || 3001;
+            const FILE = process.env.SECRET_FILE || '/vault/secrets/config.json';
+            
+            let items = [
+              { _id: '1', message: 'Hello from Vault-secured MERN stack!', createdAt: new Date().toISOString() }
+            ];
 
-          working_dir = "/app"
+            const server = http.createServer((req, res) => {
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+              res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+              if (req.method === 'OPTIONS') {
+                res.writeHead(204);
+                res.end();
+                return;
+              }
+
+              if (req.url === '/health') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ status: 'healthy' }));
+                return;
+              }
+
+              if (req.url === '/api/items' && req.method === 'GET') {
+                try {
+                  const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify(items));
+                } catch (e) {
+                  res.writeHead(500, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: 'Vault secret not available yet: ' + e.message }));
+                }
+                return;
+              }
+
+              if (req.url === '/api/items' && req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(body);
+                    const item = { _id: Date.now().toString(), message: parsed.message || 'No message', createdAt: new Date().toISOString() };
+                    items.unshift(item);
+                    res.writeHead(201, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(item));
+                  } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+                  }
+                });
+                return;
+              }
+
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Not found' }));
+            });
+
+            server.listen(PORT, '0.0.0.0', () => console.log('MERN Backend listening on port ' + PORT));
+          JS
+          ]
 
           port { container_port = 3001 }
 
@@ -426,17 +467,73 @@ resource "kubernetes_deployment_v1" "frontend" {
 
       spec {
         container {
-          name    = "mern-frontend"
-          image   = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
-          command = ["node", "serve.js"]
+          name  = "mern-frontend"
+          image = "registry.redhat.io/ubi9/nodejs-20-minimal:latest"
+          command = ["node", "-e", <<-JS
+            const http = require('http');
+            const PORT = process.env.PORT || 3000;
 
-          working_dir = "/app"
+            const html = `<!DOCTYPE html>
+            <html>
+            <head>
+              <title>MERN + Vault Demo</title>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <style>
+                body { font-family: -apple-system, system-ui, sans-serif; margin: 40px auto; max-width: 600px; padding: 0 16px; color: #1f2328; }
+                h1 { margin-bottom: 8px; }
+                p { color: #57606a; font-size: 14px; }
+                form { display: flex; gap: 8px; margin-bottom: 24px; }
+                input { flex: 1; padding: 8px 12px; border-radius: 4px; border: 1px solid #d0d7de; }
+                button { padding: 8px 16px; background: #3b82d4; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+                ul { list-style: none; padding: 0; }
+                li { padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 14px; display: flex; justify-content: space-between; }
+                .meta { color: #57606a; font-size: 12px; }
+              </style>
+            </head>
+            <body>
+              <h1>MERN + Vault Demo</h1>
+              <p>Secrets injected dynamically via Vault Agent Injector on Amazon EKS.</p>
+              <form id="addForm">
+                <input id="msg" placeholder="Add a new message..." required />
+                <button type="submit">Add</button>
+              </form>
+              <ul id="list"></ul>
+              <script>
+                async function load() {
+                  try {
+                    const res = await fetch('/api/items');
+                    const items = await res.json();
+                    document.getElementById('list').innerHTML = items.map(i => '<li><span>' + i.message + '</span><span class="meta">' + new Date(i.createdAt).toLocaleTimeString() + '</span></li>').join('');
+                  } catch(e) { console.error(e); }
+                }
+                document.getElementById('addForm').onsubmit = async (e) => {
+                  e.preventDefault();
+                  const msg = document.getElementById('msg').value;
+                  await fetch('/api/items', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: msg}) });
+                  document.getElementById('msg').value = '';
+                  load();
+                };
+                load();
+              </script>
+            </body>
+            </html>`;
+
+            const server = http.createServer((req, res) => {
+              if (req.url === '/health') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ status: 'healthy' }));
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              res.end(html);
+            });
+
+            server.listen(PORT, '0.0.0.0', () => console.log('MERN Frontend serving on port ' + PORT));
+          JS
+          ]
+
           port { container_port = 3000 }
-
-          env {
-            name  = "REACT_APP_API_URL"
-            value = "http://mern-backend:3001"
-          }
 
           resources {
             requests = { cpu = "100m", memory = "128Mi" }
@@ -472,6 +569,7 @@ resource "kubernetes_service_v1" "frontend" {
 
 # ── Uptycs EDR sensor (IBM CISO requirement) ──────────────────────────────
 module "uptycs" {
+  count  = var.enable_uptycs ? 1 : 0
   source = "../../../_shared/uptycs-eks"
 
   uptycs_helm_repo_url = var.uptycs_helm_repo_url

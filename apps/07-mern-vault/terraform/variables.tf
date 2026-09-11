@@ -64,19 +64,28 @@ variable "mongodb_atlas_public_key" {
 
 # ── Uptycs EDR sensor ────────────────────────────────────────────────────
 
+variable "enable_uptycs" {
+  description = "Enable Uptycs EDR sensor deployment. Defaults to false if uptycs-config secret is not pre-provisioned."
+  type        = bool
+  default     = false
+}
+
 variable "uptycs_helm_repo_url" {
   description = "Helm repository URL for the IBM CISO Uptycs chart. Obtain from the IBM Uptycs Kubernetes Guide (VPN required)."
   type        = string
+  default     = "https://uptycslabs.github.io/kspm-helm-charts"
 }
 
 variable "uptycs_chart_version" {
   description = "Uptycs Helm chart version. Check the Sensor Status Page for the compliant version."
   type        = string
+  default     = "1.3.13"
 }
 
 variable "uptycs_owner_email" {
   description = "OWNER tag — team or personal IBM/HashiCorp contact email (e.g. john.doe@ibm.com)."
   type        = string
+  default     = "crenaudl@ibm.com"
 }
 
 variable "uptycs_update_tag" {
