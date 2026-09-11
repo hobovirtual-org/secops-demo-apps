@@ -55,7 +55,7 @@ module "eks" {
   version = "~> 21.25"
 
   name               = "${local.name_prefix}-cluster"
-  kubernetes_version = "1.32"
+  kubernetes_version = "1.36"
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
