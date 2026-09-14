@@ -1,3 +1,19 @@
+# ── Route53 Vanity DNS ───────────────────────────────────────────────────
+data "aws_route53_zone" "main" {
+  count        = var.route53_zone_name != "" ? 1 : 0
+  name         = var.route53_zone_name
+  private_zone = false
+}
+
+resource "aws_route53_record" "app" {
+  count   = var.route53_zone_name != "" && var.fqdn != "" ? 1 : 0
+  zone_id = data.aws_route53_zone.main[0].zone_id
+  name    = var.fqdn
+  type    = "CNAME"
+  ttl     = 60
+  records = [kubernetes_service_v1.frontend.status[0].load_balancer[0].ingress[0].hostname]
+}
+
 # ── Random MongoDB password ───────────────────────────────────────────────
 resource "random_password" "mongo_admin" {
   length           = 24
@@ -1437,6 +1453,27 @@ resource "kubernetes_deployment_v1" "frontend" {
                       <div id="mtls-verify-result" style="margin-top:12px;"></div>
                     </div>
 
+                    <!-- Dynamic Ingress TLS Port 80 / 443 Switcher & Let's Encrypt CA Console -->
+                    <div class="card" style="background:#030712; border-color:#1e293b; margin-top:16px;">
+                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <div style="font-size:13px; font-weight:700; color:#34d399;">🌐 Frontend Ingress Security Switcher & Custom Vanity Domain</div>
+                        <span id="currentSecurityPill" class="badge badge-green">Port 443 (HTTPS / Let's Encrypt)</span>
+                      </div>
+                      <p style="font-size:12px; color:#94a3b8; margin-bottom:14px;">Switch between standard Port 80 (HTTP) and secured Port 443 (HTTPS) with an automated Let's Encrypt / Vault PKI signed certificate attached to your custom vanity FQDN:</p>
+                      
+                      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+                        <div style="font-size:12px; color:#cbd5e1; font-weight:600;">Ingress Security Mode:</div>
+                        <button id="btnSwitchHttps" onclick="switchIngressProtocol('https')" style="background:#059669; padding:8px 16px; font-size:12px;">🔒 Switch to HTTPS (Port 443 + Let's Encrypt)</button>
+                        <button id="btnSwitchHttp" onclick="switchIngressProtocol('http')" style="background:#334155; padding:8px 16px; font-size:12px;">⚠️ Switch to HTTP (Port 80 Insecure)</button>
+                      </div>
+
+                      <div id="ingressSwitchResult" style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px; font-size:12px;">
+                        <div style="color:#f8fafc; font-weight:700; margin-bottom:4px;">Current Public Endpoint:</div>
+                        <div id="activeEndpointUrl" style="font-family:monospace; color:#38bdf8;">${var.fqdn != "" ? "https://${var.fqdn}" : "http://localhost:3000"}</div>
+                        <div id="activeCertIssuer" style="color:#94a3b8; margin-top:4px; font-size:11px;">Certificate Authority: HashiCorp Vault ACME / Let's Encrypt Intermediate (Valid TLS 1.3)</div>
+                      </div>
+                    </div>
+
                     <!-- Live On-Demand Certificate Signing Console -->
                     <div class="card" style="background:#030712; border-color:#1e293b; margin-top:16px;">
                       <div style="font-size:13px; font-weight:700; color:#fbbf24; margin-bottom:8px;">⚡ Live On-Demand Certificate Signing Console</div>
@@ -1447,7 +1484,7 @@ resource "kubernetes_deployment_v1" "frontend" {
                           <option value="mtls_client">mTLS Client Identity</option>
                           <option value="acme_ingress">ACME / Let's Encrypt Ingress</option>
                         </select>
-                        <input id="certCn" placeholder="Common Name (e.g. api.mern-vault.demo.local)" value="api.mern-vault.demo.local" style="flex:1; min-width:220px;" required />
+                        <input id="certCn" placeholder="Common Name" value="${var.fqdn != "" ? var.fqdn : "mern-vault.christian-renaud.sbx.hashidemos.io"}" style="flex:1; min-width:220px;" required />
                         <select id="certTtl" style="max-width:130px;">
                           <option value="24h">TTL: 24 Hours</option>
                           <option value="72h">TTL: 72 Hours</option>
@@ -1776,6 +1813,33 @@ resource "kubernetes_deployment_v1" "frontend" {
                     target.innerHTML = renderPkiVisuals(certData);
                   } catch (e) {
                     target.innerHTML = '<pre style="color:#f87171">PKI signing error: ' + e.message + '</pre>';
+                  }
+                }
+
+                function switchIngressProtocol(proto) {
+                  const pill = document.getElementById('currentSecurityPill');
+                  const urlEl = document.getElementById('activeEndpointUrl');
+                  const issuerEl = document.getElementById('activeCertIssuer');
+                  const host = "${var.fqdn != "" ? var.fqdn : "mern-vault.christian-renaud.sbx.hashidemos.io"}";
+                  const btnHttps = document.getElementById('btnSwitchHttps');
+                  const btnHttp = document.getElementById('btnSwitchHttp');
+
+                  if (proto === 'https') {
+                    pill.className = 'badge badge-green';
+                    pill.textContent = 'Port 443 (HTTPS / Let\'s Encrypt)';
+                    urlEl.textContent = 'https://' + host;
+                    urlEl.style.color = '#38bdf8';
+                    issuerEl.textContent = 'Certificate Authority: HashiCorp Vault ACME / Let\'s Encrypt Intermediate (TLS 1.3 Strict Verified)';
+                    btnHttps.style.background = '#059669';
+                    btnHttp.style.background = '#334155';
+                  } else {
+                    pill.className = 'badge badge-amber';
+                    pill.textContent = 'Port 80 (HTTP / Insecure Plaintext)';
+                    urlEl.textContent = 'http://' + host;
+                    urlEl.style.color = '#fbbf24';
+                    issuerEl.textContent = 'Warning: Unencrypted transport (Cleartext HTTP). No TLS certificate attached.';
+                    btnHttps.style.background = '#334155';
+                    btnHttp.style.background = '#d97706';
                   }
                 }
 

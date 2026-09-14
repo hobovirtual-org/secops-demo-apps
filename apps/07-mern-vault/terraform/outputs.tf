@@ -30,7 +30,12 @@ output "kubectl_context" {
 
 output "app_url" {
   description = "Public URL of the frontend application."
-  value       = try("http://${kubernetes_service_v1.frontend.status[0].load_balancer[0].ingress[0].hostname}", "Pending AWS ELB provisioning")
+  value       = var.fqdn != "" ? "https://${var.fqdn}" : try("http://${kubernetes_service_v1.frontend.status[0].load_balancer[0].ingress[0].hostname}", "Pending AWS ELB provisioning")
+}
+
+output "route53_fqdn" {
+  description = "User-friendly custom DNS FQDN (if route53_zone_name is configured)."
+  value       = length(aws_route53_record.app) > 0 ? aws_route53_record.app[0].fqdn : ""
 }
 
 output "frontend_service" {

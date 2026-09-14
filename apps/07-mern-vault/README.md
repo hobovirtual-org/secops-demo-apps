@@ -77,6 +77,8 @@ vault_namespace     = ""
 node_instance_type  = "t3.medium"
 desired_node_count  = 2
 developer_role_arns = ["arn:aws:iam::602343948585:role/aws_christian.renaud_test-developer"]
+route53_zone_name   = "christian-renaud.sbx.hashidemos.io" # Optional vanity DNS
+fqdn                = "mern-vault.christian-renaud.sbx.hashidemos.io" # Optional vanity FQDN
 ```
 
 ### 2. Trigger a Run

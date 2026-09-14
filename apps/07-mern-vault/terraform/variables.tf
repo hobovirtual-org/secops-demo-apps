@@ -55,6 +55,18 @@ variable "developer_role_arns" {
   default     = []
 }
 
+variable "route53_zone_name" {
+  description = "Optional public Route53 hosted zone name (e.g. christian-renaud.sbx.hashidemos.io) for user-friendly vanity DNS."
+  type        = string
+  default     = ""
+}
+
+variable "fqdn" {
+  description = "Optional custom FQDN for the app (e.g. mern-vault.christian-renaud.sbx.hashidemos.io)."
+  type        = string
+  default     = ""
+}
+
 variable "mongodb_atlas_public_key" {
   description = "MongoDB Atlas public API key (used only if using Atlas; leave empty for in-cluster MongoDB)."
   type        = string
