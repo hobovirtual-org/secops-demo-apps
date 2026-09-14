@@ -66,5 +66,5 @@ app.post('/api/items', async (req, res) => {
 (async () => {
   const secrets = readVaultSecrets();
   await connectMongo(secrets);
-  app.listen(PORT, '0.0.0.0', () => console.log(`Backend listening on port ${PORT}`));
+  app.listen(PORT, '127.0.0.1', () => console.log(`Backend listening on port ${PORT}`));
 })();
