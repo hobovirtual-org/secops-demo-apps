@@ -1520,7 +1520,7 @@ resource "kubernetes_deployment_v1" "frontend" {
                           <option value="mtls_client">mTLS Client Identity</option>
                           <option value="acme_ingress">ACME / Let's Encrypt Ingress</option>
                         </select>
-                        <input id="certCn" placeholder="Common Name" value="${var.fqdn != "" ? var.fqdn : "mern-vault.christian-renaud.sbx.hashidemos.io"}" style="flex:1; min-width:220px;" required />
+                        <input id="certCn" placeholder="Common Name" value='${var.fqdn != "" ? var.fqdn : "mern-vault.christian-renaud.sbx.hashidemos.io"}' style="flex:1; min-width:220px;" required />
                         <select id="certTtl" style="max-width:130px;">
                           <option value="24h">TTL: 24 Hours</option>
                           <option value="72h">TTL: 72 Hours</option>
