@@ -921,6 +921,18 @@ resource "kubernetes_deployment_v1" "frontend" {
                 input:focus, select:focus { outline: none; border-color: #38bdf8; }
                 button { background: #0284c7; color: #fff; border: none; border-radius: 6px; font-weight: 600; padding: 10px 20px; cursor: pointer; transition: background 0.2s; }
                 button:hover { background: #0369a1; }
+                .flow-step { display: flex; align-items: flex-start; gap: 12px; background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+                .step-badge { width: 28px; height: 28px; border-radius: 50%; background: #0284c7; color: #fff; font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+                .step-badge-green { background: #059669; }
+                .step-badge-amber { background: #d97706; }
+                .step-badge-purple { background: #7c3aed; }
+                .flow-content { flex: 1; }
+                .flow-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+                .flow-actor { font-size: 13px; font-weight: 700; color: #f8fafc; }
+                .flow-latency { font-size: 11px; font-weight: 600; color: #38bdf8; background: #0c4a6e; padding: 2px 8px; border-radius: 10px; }
+                .flow-action { font-size: 12px; color: #94a3b8; }
+                .hcl-box { background: #030712; border: 1px solid #1f2937; border-radius: 8px; padding: 14px; margin-top: 14px; }
+                .hcl-title { font-size: 12px; font-weight: 700; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
                 ul.tx-list { list-style: none; padding: 0; margin: 0; }
                 ul.tx-list li { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
                 .tx-left { display: flex; flex-direction: column; gap: 4px; }
@@ -1087,8 +1099,14 @@ resource "kubernetes_deployment_v1" "frontend" {
 
                     <div class="card" style="background:#030712; border-color:#1e293b; margin-top:16px;">
                       <div style="font-size:13px; font-weight:700; color:#34d399; margin-bottom:8px;">⚡ Live Dynamic MongoDB User Generation Console</div>
-                      <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Trigger an on-demand dynamic database user generation through Vault's Database engine:</p>
-                      <button onclick="generateDynamicDbCreds()" style="background:#059669;">⚡ Request Ephemeral MongoDB User (vault read database/creds/mern-app-role)</button>
+                      <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Select an authorized Vault database role to generate an on-demand ephemeral MongoDB database user:</p>
+                      <div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+                        <select id="dynamicDbRole" style="max-width:240px;">
+                          <option value="mern-app-role">Role: mern-app-role (readWrite)</option>
+                          <option value="mern-analytics-role">Role: mern-analytics-role (readOnly)</option>
+                        </select>
+                        <button onclick="generateDynamicDbCreds()" style="background:#059669;">⚡ Request Ephemeral MongoDB User</button>
+                      </div>
                       <div id="dynamic-db-result" style="margin-top:12px;"></div>
                     </div>
                   </div>
@@ -1192,9 +1210,14 @@ vault.hashicorp.com/agent-inject-template-config.json: |
                     <div class="card" style="background:#030712; border-color:#1e293b; margin-top:16px;">
                       <div style="font-size:13px; font-weight:700; color:#fbbf24; margin-bottom:8px;">⚡ Live On-Demand Certificate Signing Console</div>
                       <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Generate and sign an X.509 TLS certificate dynamically through Vault's PKI engine:</p>
-                      <form id="certForm" style="display:flex; gap:8px;">
-                        <input id="certCn" placeholder="Common Name (e.g. api.mern-vault.demo.local)" value="api.mern-vault.demo.local" style="flex:1;" required />
-                        <select id="certTtl" style="max-width:120px;">
+                      <form id="certForm" style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <select id="certTypeSelect" style="max-width:200px;">
+                          <option value="server_tls">Server TLS (Web / Ingress)</option>
+                          <option value="mtls_client">mTLS Client Identity</option>
+                          <option value="acme_ingress">ACME / Let's Encrypt Ingress</option>
+                        </select>
+                        <input id="certCn" placeholder="Common Name (e.g. api.mern-vault.demo.local)" value="api.mern-vault.demo.local" style="flex:1; min-width:220px;" required />
+                        <select id="certTtl" style="max-width:130px;">
                           <option value="24h">TTL: 24 Hours</option>
                           <option value="72h">TTL: 72 Hours</option>
                           <option value="7d">TTL: 7 Days</option>
@@ -1307,13 +1330,95 @@ vault.hashicorp.com/agent-inject-template-config.json: |
                   }
                 }
 
+                function escapeHtml(str) {
+                  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                }
+
+                function renderExecutionFlow(steps, badgeColorClass) {
+                  if (!steps || !steps.length) return '';
+                  const items = steps.map(function(s) {
+                    return '<div class="flow-step">' +
+                      '<div class="step-badge ' + (badgeColorClass || '') + '">' + s.step + '</div>' +
+                      '<div class="flow-content">' +
+                        '<div class="flow-header">' +
+                          '<span class="flow-actor">' + escapeHtml(s.actor) + '</span>' +
+                          '<span class="flow-latency">' + escapeHtml(s.latency) + '</span>' +
+                        '</div>' +
+                        '<div class="flow-action">' + escapeHtml(s.action) + '</div>' +
+                      '</div>' +
+                    '</div>';
+                  }).join('');
+                  return '<div style="margin-top:16px;">' +
+                    '<div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">🔄 Dynamic Execution Path & Latency Trace</div>' +
+                    items +
+                  '</div>';
+                }
+
+                function renderTerraformHcl(hclCode) {
+                  if (!hclCode) return '';
+                  return '<div class="hcl-box">' +
+                    '<div class="hcl-title">📜 Required Infrastructure Configuration (Terraform HCL)</div>' +
+                    '<pre style="margin:0;">' + escapeHtml(hclCode) + '</pre>' +
+                  '</div>';
+                }
+
+                function renderDynamicDbVisuals(data) {
+                  const rawJson = {
+                    status: data.status,
+                    operation: data.operation,
+                    requested_role: data.requested_role,
+                    lease_id: data.lease_id,
+                    lease_duration: data.lease_duration,
+                    renewable: data.renewable,
+                    issued_at: data.issued_at,
+                    expires_at: data.expires_at,
+                    ephemeral_credentials: data.ephemeral_credentials
+                  };
+
+                  const jsonHtml = '<div style="margin-top:14px;"><div style="font-size:12px; font-weight:700; color:#34d399; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">🔑 Ephemeral MongoDB User Credentials (Vault Output)</div><pre>' + escapeHtml(JSON.stringify(rawJson, null, 2)) + '</pre></div>';
+                  const flowHtml = renderExecutionFlow(data.execution_path_visualizer, 'step-badge-green');
+                  const hclHtml = renderTerraformHcl(data.required_terraform_hcl);
+
+                  return jsonHtml + flowHtml + hclHtml;
+                }
+
+                function renderPkiVisuals(data) {
+                  const rawJson = {
+                    status: data.status,
+                    operation: data.operation,
+                    use_case: data.use_case,
+                    common_name: data.common_name,
+                    serial_number: data.serial_number,
+                    issuer: data.issuer,
+                    issued_at: data.issued_at,
+                    expires_at: data.expires_at,
+                    ttl_requested: data.ttl_requested,
+                    key_type: data.key_type,
+                    sans: data.sans,
+                    certificate_pem: data.certificate_pem,
+                    ca_chain_pem: data.ca_chain_pem
+                  };
+
+                  const jsonHtml = '<div style="margin-top:14px;"><div style="font-size:12px; font-weight:700; color:#fbbf24; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">📜 Signed X.509 Certificate & CA Bundle (Vault Output)</div><pre>' + escapeHtml(JSON.stringify(rawJson, null, 2)) + '</pre></div>';
+                  const flowHtml = renderExecutionFlow(data.execution_path_visualizer, 'step-badge-amber');
+                  const hclHtml = renderTerraformHcl(data.required_terraform_hcl);
+
+                  return jsonHtml + flowHtml + hclHtml;
+                }
+
                 async function generateDynamicDbCreds() {
+                  const roleSelect = document.getElementById('dynamicDbRole');
+                  const selectedRole = roleSelect ? roleSelect.value : 'mern-app-role';
                   const target = document.getElementById('dynamic-db-result');
-                  target.innerHTML = '<pre>Requesting ephemeral database user generation from Vault (vault read database/creds/mern-app-role)...</pre>';
+                  target.innerHTML = '<pre>Requesting ephemeral database user generation from Vault (vault read database/creds/' + selectedRole + ')...</pre>';
                   try {
-                    const res = await fetch(API + '/generate-dynamic-db-creds', { method: 'POST' });
+                    const res = await fetch(API + '/generate-dynamic-db-creds', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ role: selectedRole })
+                    });
                     const credData = await res.json();
-                    target.innerHTML = '<pre>' + JSON.stringify(credData, null, 2) + '</pre>';
+                    target.innerHTML = renderDynamicDbVisuals(credData);
                   } catch (e) {
                     target.innerHTML = '<pre style="color:#f87171">Dynamic DB error: ' + e.message + '</pre>';
                   }
@@ -1323,16 +1428,18 @@ vault.hashicorp.com/agent-inject-template-config.json: |
                   e.preventDefault();
                   const cn = document.getElementById('certCn').value;
                   const ttl = document.getElementById('certTtl').value;
+                  const certTypeSelect = document.getElementById('certTypeSelect');
+                  const certType = certTypeSelect ? certTypeSelect.value : 'server_tls';
                   const target = document.getElementById('certResult');
                   target.innerHTML = '<pre>Requesting dynamic X.509 certificate issuance from HashiCorp Vault PKI engine...</pre>';
                   try {
                     const res = await fetch(API + '/issue-cert', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ common_name: cn, ttl: ttl })
+                      body: JSON.stringify({ common_name: cn, ttl: ttl, cert_type: certType })
                     });
                     const certData = await res.json();
-                    target.innerHTML = '<pre>' + JSON.stringify(certData, null, 2) + '</pre>';
+                    target.innerHTML = renderPkiVisuals(certData);
                   } catch (e) {
                     target.innerHTML = '<pre style="color:#f87171">PKI signing error: ' + e.message + '</pre>';
                   }
