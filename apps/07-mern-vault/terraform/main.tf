@@ -1965,10 +1965,10 @@ resource "kubernetes_deployment_v1" "frontend" {
 
                   if (proto === 'https') {
                     pill.className = 'badge badge-green';
-                    pill.textContent = 'Port 443 (HTTPS / Let\'s Encrypt)';
+                    pill.textContent = "Port 443 (HTTPS / Let's Encrypt)";
                     urlEl.textContent = 'https://' + host;
                     urlEl.style.color = '#38bdf8';
-                    issuerEl.textContent = 'Certificate Authority: HashiCorp Vault ACME / Let\'s Encrypt Intermediate (TLS 1.3 Strict Verified)';
+                    issuerEl.textContent = "Certificate Authority: HashiCorp Vault ACME / Let's Encrypt Intermediate (TLS 1.3 Strict Verified)";
                     btnHttps.style.background = '#059669';
                     btnHttp.style.background = '#334155';
                   } else {
