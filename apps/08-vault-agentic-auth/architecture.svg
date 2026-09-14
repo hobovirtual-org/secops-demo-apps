@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 560" width="860" height="560" font-family="-apple-system, 'Segoe UI', system-ui, sans-serif" font-size="12">
+
+  <!-- Background -->
+  <rect width="860" height="560" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="430" y="30" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">App 08 — Vault Agentic Auth</text>
+  <text x="430" y="48" text-anchor="middle" font-size="11" fill="#57606a">ECS Fargate · JWT Auth · Agent Registry · KV-v2 · Database Engine</text>
+
+  <!-- ── AWS ECS Fargate box ─────────────────────────────────────────── -->
+  <rect x="20" y="70" width="280" height="340" rx="6" fill="#fef9f0" stroke="#f7981d" stroke-width="1.5"/>
+  <text x="160" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="#f7981d">AWS ECS Fargate Task</text>
+
+  <!-- Agent container -->
+  <rect x="40" y="100" width="240" height="140" rx="4" fill="#fff8f0" stroke="#f7981d" stroke-width="1"/>
+  <text x="160" y="117" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">agent container</text>
+  <text x="160" y="130" text-anchor="middle" font-size="9" fill="#57606a">Python 3.12 · UID 1001 · UBI 9 minimal</text>
+
+  <rect x="55" y="138" width="210" height="22" rx="3" fill="#e8f5e9" stroke="#2ea043" stroke-width="1"/>
+  <text x="160" y="152" text-anchor="middle" font-size="9" fill="#1f2328">vault_auth.py — get_vault_token()</text>
+
+  <rect x="55" y="166" width="210" height="22" rx="3" fill="#e3f0ff" stroke="#3b82d4" stroke-width="1"/>
+  <text x="160" y="180" text-anchor="middle" font-size="9" fill="#1f2328">tools.py — watsonx_query(prompt)</text>
+
+  <rect x="55" y="194" width="210" height="22" rx="3" fill="#e3f0ff" stroke="#3b82d4" stroke-width="1"/>
+  <text x="160" y="208" text-anchor="middle" font-size="9" fill="#1f2328">tools.py — postgres_write(record)</text>
+
+  <rect x="55" y="222" width="210" height="12" rx="2" fill="#f7f8fa" stroke="#e5e7eb" stroke-width="0.5"/>
+  <text x="160" y="232" text-anchor="middle" font-size="8" fill="#57606a">agent.py — orchestrates the pipeline</text>
+
+  <!-- Postgres sidecar -->
+  <rect x="40" y="256" width="240" height="60" rx="4" fill="#f5f0ff" stroke="#7c5cd8" stroke-width="1"/>
+  <text x="160" y="272" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">postgres sidecar</text>
+  <text x="160" y="285" text-anchor="middle" font-size="9" fill="#57606a">localhost:5432 · agentdb</text>
+  <text x="160" y="298" text-anchor="middle" font-size="9" fill="#57606a">agent_audit table</text>
+
+  <!-- IAM Task Role -->
+  <rect x="40" y="330" width="240" height="50" rx="4" fill="#fff3e0" stroke="#f7981d" stroke-width="1"/>
+  <text x="160" y="348" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">ECS Task IAM Role</text>
+  <text x="160" y="362" text-anchor="middle" font-size="9" fill="#57606a">identity JWT via metadata v4 endpoint</text>
+  <text x="160" y="374" text-anchor="middle" font-size="9" fill="#57606a">no AWS API calls needed</text>
+
+  <!-- ── HashiCorp Vault box ─────────────────────────────────────────── -->
+  <rect x="360" y="70" width="280" height="340" rx="6" fill="#f0fdf4" stroke="#2ea043" stroke-width="1.5"/>
+  <text x="500" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="#2ea043">HashiCorp Vault Enterprise 2.1+</text>
+
+  <!-- JWT Auth -->
+  <rect x="380" y="100" width="240" height="60" rx="4" fill="#e8f5e9" stroke="#2ea043" stroke-width="1"/>
+  <text x="500" y="118" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">JWT Auth Method</text>
+  <text x="500" y="131" text-anchor="middle" font-size="9" fill="#57606a">mount: auth/jwt · role: ai-agent-role</text>
+  <text x="500" y="144" text-anchor="middle" font-size="9" fill="#57606a">bound_subject: ECS task role ARN</text>
+
+  <!-- Agent Registry -->
+  <rect x="380" y="172" width="240" height="72" rx="4" fill="#f0fdf4" stroke="#2ea043" stroke-width="1"/>
+  <text x="500" y="189" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">Agent Registry</text>
+  <text x="500" y="202" text-anchor="middle" font-size="9" fill="#57606a">Identity Entity: app-08-watsonx-agent</text>
+  <text x="500" y="215" text-anchor="middle" font-size="9" fill="#57606a">agent_type=ai  ·  status=active</text>
+  <text x="500" y="228" text-anchor="middle" font-size="9" fill="#57606a">policy: ai-agent-policy (min privilege)</text>
+
+  <!-- KV-v2 -->
+  <rect x="380" y="256" width="110" height="60" rx="4" fill="#e3f0ff" stroke="#3b82d4" stroke-width="1"/>
+  <text x="435" y="273" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">KV-v2</text>
+  <text x="435" y="286" text-anchor="middle" font-size="9" fill="#57606a">secret/data/</text>
+  <text x="435" y="299" text-anchor="middle" font-size="9" fill="#57606a">agents/app-08/watsonx</text>
+
+  <!-- Database engine -->
+  <rect x="510" y="256" width="110" height="60" rx="4" fill="#f5f0ff" stroke="#7c5cd8" stroke-width="1"/>
+  <text x="565" y="273" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">Database</text>
+  <text x="565" y="286" text-anchor="middle" font-size="9" fill="#57606a">Postgres dynamic</text>
+  <text x="565" y="299" text-anchor="middle" font-size="9" fill="#57606a">creds · TTL 1h</text>
+
+  <!-- Vault policy -->
+  <rect x="380" y="330" width="240" height="50" rx="4" fill="#f7f8fa" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="500" y="348" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">ai-agent-policy</text>
+  <text x="500" y="361" text-anchor="middle" font-size="9" fill="#57606a">read: secret/data/agents/app-08/*</text>
+  <text x="500" y="374" text-anchor="middle" font-size="9" fill="#57606a">read: database/creds/agent-postgres-role</text>
+
+  <!-- ── watsonx.ai box ─────────────────────────────────────────────── -->
+  <rect x="700" y="70" width="140" height="80" rx="6" fill="#e3f0ff" stroke="#3b82d4" stroke-width="1.5"/>
+  <text x="770" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="#3b82d4">watsonx.ai</text>
+  <text x="770" y="106" text-anchor="middle" font-size="9" fill="#57606a">IBM Granite 13B Chat</text>
+  <text x="770" y="119" text-anchor="middle" font-size="9" fill="#57606a">text generation</text>
+  <text x="770" y="132" text-anchor="middle" font-size="9" fill="#57606a">API key from Vault</text>
+
+  <!-- ── CloudWatch box ─────────────────────────────────────────────── -->
+  <rect x="700" y="170" width="140" height="60" rx="6" fill="#fff8f0" stroke="#f7981d" stroke-width="1.5"/>
+  <text x="770" y="190" text-anchor="middle" font-size="11" font-weight="600" fill="#f7981d">CloudWatch</text>
+  <text x="770" y="206" text-anchor="middle" font-size="9" fill="#57606a">structured JSON logs</text>
+  <text x="770" y="219" text-anchor="middle" font-size="9" fill="#57606a">30-day retention</text>
+
+  <!-- ── Arrows ─────────────────────────────────────────────────────── -->
+
+  <!-- 1. Agent → Vault JWT login -->
+  <line x1="280" y1="152" x2="378" y2="130" stroke="#2ea043" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="320" y="132" text-anchor="middle" font-size="8" fill="#2ea043">① JWT login</text>
+
+  <!-- 2. Vault → Agent: token -->
+  <line x1="378" y1="145" x2="280" y2="165" stroke="#2ea043" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-green)"/>
+  <text x="320" y="162" text-anchor="middle" font-size="8" fill="#2ea043">② Vault token</text>
+
+  <!-- 3. Agent reads KV-v2 -->
+  <line x1="280" y1="176" x2="378" y2="278" stroke="#3b82d4" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="318" y="230" text-anchor="middle" font-size="8" fill="#3b82d4">③ read KV-v2</text>
+
+  <!-- 4. Agent reads DB creds -->
+  <line x1="280" y1="190" x2="508" y2="278" stroke="#7c5cd8" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="400" y="246" text-anchor="middle" font-size="8" fill="#7c5cd8">④ gen DB creds</text>
+
+  <!-- 5. Agent → watsonx -->
+  <line x1="280" y1="166" x2="698" y2="105" stroke="#3b82d4" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="490" y="110" text-anchor="middle" font-size="8" fill="#3b82d4">⑤ call watsonx.ai</text>
+
+  <!-- 6. Agent → Postgres (audit write) -->
+  <line x1="160" y1="256" x2="160" y2="316" stroke="#7c5cd8" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="168" y="290" font-size="8" fill="#7c5cd8">⑥ audit write</text>
+
+  <!-- 7. ECS → CloudWatch -->
+  <line x1="280" y1="360" x2="698" y2="198" stroke="#f7981d" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-orange)"/>
+  <text x="530" y="295" text-anchor="middle" font-size="8" fill="#f7981d">logs</text>
+
+  <!-- ── Legend ─────────────────────────────────────────────────────── -->
+  <rect x="20" y="440" width="820" height="100" rx="4" fill="#f7f8fa" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="430" y="458" text-anchor="middle" font-size="10" font-weight="600" fill="#1f2328">Credential Lifecycle</text>
+
+  <!-- Step boxes in legend -->
+  <rect x="35"  y="466" width="150" height="30" rx="3" fill="#e8f5e9" stroke="#2ea043" stroke-width="1"/>
+  <text x="110" y="479" text-anchor="middle" font-size="9" font-weight="600" fill="#1f2328">1. JWT Auth</text>
+  <text x="110" y="490" text-anchor="middle" font-size="8" fill="#57606a">ECS task JWT → Vault token (1h TTL)</text>
+
+  <rect x="200" y="466" width="150" height="30" rx="3" fill="#e3f0ff" stroke="#3b82d4" stroke-width="1"/>
+  <text x="275" y="479" text-anchor="middle" font-size="9" font-weight="600" fill="#1f2328">2. KV-v2 Secret</text>
+  <text x="275" y="490" text-anchor="middle" font-size="8" fill="#57606a">watsonx API key · short-lived lease</text>
+
+  <rect x="365" y="466" width="150" height="30" rx="3" fill="#f5f0ff" stroke="#7c5cd8" stroke-width="1"/>
+  <text x="440" y="479" text-anchor="middle" font-size="9" font-weight="600" fill="#1f2328">3. Dynamic DB Creds</text>
+  <text x="440" y="490" text-anchor="middle" font-size="8" fill="#57606a">Vault issues username+password · 1h TTL</text>
+
+  <rect x="530" y="466" width="150" height="30" rx="3" fill="#fff8f0" stroke="#f7981d" stroke-width="1"/>
+  <text x="605" y="479" text-anchor="middle" font-size="9" font-weight="600" fill="#1f2328">4. Auto-Expiry</text>
+  <text x="605" y="490" text-anchor="middle" font-size="8" fill="#57606a">All credentials expire · nothing persists</text>
+
+  <rect x="695" y="466" width="130" height="30" rx="3" fill="#f0fdf4" stroke="#2ea043" stroke-width="1"/>
+  <text x="760" y="479" text-anchor="middle" font-size="9" font-weight="600" fill="#1f2328">Agent Registry</text>
+  <text x="760" y="490" text-anchor="middle" font-size="8" fill="#57606a">Entity metadata · Vault UI visible</text>
+
+  <text x="430" y="527" text-anchor="middle" font-size="9" fill="#57606a">Zero hardcoded secrets · TLS everywhere · Non-root container (UID 1001) · Structured audit logs</text>
+
+  <!-- ── Arrow markers ──────────────────────────────────────────────── -->
+  <defs>
+    <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2ea043"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#3b82d4"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#7c5cd8"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#f7981d"/>
+    </marker>
+  </defs>
+
+</svg>

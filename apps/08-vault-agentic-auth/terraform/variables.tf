@@ -1,0 +1,103 @@
+variable "aws_region" {
+  description = "AWS region for all resources."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "environment" {
+  description = "Deployment environment."
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = contains(["dev", "staging", "prod", "sandbox"], var.environment)
+    error_message = "environment must be dev, staging, prod, or sandbox."
+  }
+}
+
+variable "project_name" {
+  description = "Naming prefix for all AWS and Vault resources."
+  type        = string
+}
+
+variable "vault_address" {
+  description = "Vault cluster URL (e.g. https://vault.example.com)."
+  type        = string
+}
+
+variable "vault_namespace" {
+  description = "Vault namespace. Empty string for self-managed Vault (root namespace). Use 'admin' for HCP Vault Dedicated."
+  type        = string
+  default     = ""
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for the dedicated VPC."
+  type        = string
+  default     = "10.80.0.0/16"
+}
+
+variable "public_subnet_cidrs" {
+  description = "List of CIDR blocks for public subnets (one per AZ). Must be within vpc_cidr."
+  type        = list(string)
+  default     = ["10.80.1.0/24", "10.80.2.0/24"]
+}
+
+variable "private_subnet_cidrs" {
+  description = "List of CIDR blocks for private subnets (one per AZ). Must be within vpc_cidr."
+  type        = list(string)
+  default     = ["10.80.10.0/24", "10.80.11.0/24"]
+}
+
+variable "watsonx_api_key" {
+  description = "watsonx.ai API key seeded into Vault KV-v2. Stored as a Vault secret — never written to state as plaintext."
+  type        = string
+  sensitive   = true
+}
+
+variable "watsonx_project_id" {
+  description = "watsonx.ai project ID passed to the ECS task as an environment variable."
+  type        = string
+}
+
+variable "watsonx_api_url" {
+  description = "watsonx.ai text generation API endpoint."
+  type        = string
+  default     = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
+}
+
+variable "agent_prompt" {
+  description = "Default prompt sent to watsonx.ai by the agent."
+  type        = string
+  default     = "Summarize the zero-trust security principles in 3 bullet points."
+}
+
+variable "postgres_admin_password" {
+  description = "Initial Postgres superuser password used by the Vault Database engine to manage dynamic credentials. Stored sensitive."
+  type        = string
+  sensitive   = true
+}
+
+variable "db_creds_ttl" {
+  description = "Default TTL for Vault-issued dynamic Postgres credentials."
+  type        = string
+  default     = "1h"
+}
+
+variable "db_creds_max_ttl" {
+  description = "Maximum TTL for Vault-issued dynamic Postgres credentials."
+  type        = string
+  default     = "4h"
+}
+
+variable "vault_token_ttl" {
+  description = "TTL for Vault tokens issued to the agent via the JWT auth role."
+  type        = string
+  default     = "1h"
+}
+
+variable "vault_token_max_ttl" {
+  description = "Maximum TTL for Vault tokens issued to the agent via the JWT auth role."
+  type        = string
+  default     = "4h"
+}

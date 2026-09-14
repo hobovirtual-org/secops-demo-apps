@@ -1,0 +1,19 @@
+project_name            = "demo"
+environment             = "dev"
+aws_region              = "us-east-1"
+vault_address           = "https://vault.example.com"
+vault_namespace         = "admin"
+vpc_cidr                = "10.80.0.0/16"
+public_subnet_cidrs     = ["10.80.1.0/24", "10.80.2.0/24"]
+private_subnet_cidrs    = ["10.80.10.0/24", "10.80.11.0/24"]
+watsonx_project_id      = "your-watsonx-project-id"
+watsonx_api_url         = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
+agent_prompt            = "Summarize the zero-trust security principles in 3 bullet points."
+db_creds_ttl            = "1h"
+db_creds_max_ttl        = "4h"
+vault_token_ttl         = "1h"
+vault_token_max_ttl     = "4h"
+
+# Sensitive — set as workspace variables in HCP Terraform (mark as sensitive)
+# watsonx_api_key         = "..."
+# postgres_admin_password = "..."
