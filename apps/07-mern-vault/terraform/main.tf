@@ -1068,8 +1068,8 @@ resource "kubernetes_deployment_v1" "frontend" {
                 .header { text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #1e293b; }
                 .header h1 { font-size: 26px; color: #f8fafc; margin: 0 0 8px; font-weight: 700; }
                 .header p { color: #94a3b8; font-size: 14px; margin: 0; }
-                .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 4px; border-bottom: 1px solid #1e293b; }
-                .tab-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 10px 18px; border-radius: 8px 8px 0 0; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+                .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 8px; border-bottom: 2px solid #1e293b; flex-wrap: wrap; }
+                .tab-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
                 .tab-btn:hover { background: #334155; color: #f8fafc; }
                 .tab-btn.active { background: #0284c7; color: #ffffff; border-color: #0284c7; }
                 .tab-pane { display: none; }
@@ -1127,13 +1127,13 @@ resource "kubernetes_deployment_v1" "frontend" {
 
                 <!-- Navigation Tabs -->
                 <div class="nav-tabs">
-                  <button class="tab-btn active" onclick="showTab('overview')">1. Architecture & Telemetry</button>
-                  <button class="tab-btn" onclick="showTab('dynamic-db')">2. Dynamic Database Secrets Engine</button>
-                  <button class="tab-btn" onclick="showTab('auth-flow')">3. Zero-Trust Identity Handshake</button>
-                  <button class="tab-btn" onclick="showTab('secret-injection')">4. Sidecar Secret Injection</button>
-                  <button class="tab-btn" onclick="showTab('pki-tls')">5. PKI & Let's Encrypt TLS Engine</button>
-                  <button class="tab-btn" onclick="showTab('data-plane')">6. Verified Data Plane</button>
-                  <button class="tab-btn" onclick="showTab('comparison')">7. Threat Model Comparison</button>
+                  <button class="tab-btn active" onclick="showTab('overview', this)">1. Architecture & Telemetry</button>
+                  <button class="tab-btn" onclick="showTab('dynamic-db', this)">2. Dynamic Database Secrets Engine</button>
+                  <button class="tab-btn" onclick="showTab('auth-flow', this)">3. Zero-Trust Identity Handshake</button>
+                  <button class="tab-btn" onclick="showTab('secret-injection', this)">4. Sidecar Secret Injection</button>
+                  <button class="tab-btn" onclick="showTab('pki-tls', this)">5. PKI & Let's Encrypt TLS Engine</button>
+                  <button class="tab-btn" onclick="showTab('data-plane', this)">6. Verified Data Plane</button>
+                  <button class="tab-btn" onclick="showTab('comparison', this)">7. Threat Model Comparison</button>
                 </div>
 
                 <!-- TAB 1: ARCHITECTURE OVERVIEW & TELEMETRY -->
@@ -1532,11 +1532,16 @@ resource "kubernetes_deployment_v1" "frontend" {
               <script>
                 const API = '/api';
 
-                function showTab(tabId) {
+                function showTab(tabId, el) {
                   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
                   document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
-                  event.currentTarget.classList.add('active');
-                  document.getElementById(tabId).classList.add('active');
+                  if (el) {
+                    el.classList.add('active');
+                  } else if (window.event && window.event.currentTarget) {
+                    window.event.currentTarget.classList.add('active');
+                  }
+                  const targetPane = document.getElementById(tabId);
+                  if (targetPane) targetPane.classList.add('active');
                 }
 
                 async function loadTelemetry() {
