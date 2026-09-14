@@ -1179,13 +1179,13 @@ resource "kubernetes_deployment_v1" "frontend" {
 
                 <!-- Navigation Tabs -->
                 <div class="nav-tabs">
-                  <button class="tab-btn active" onclick="showTab('overview', this)">1. Architecture & Telemetry</button>
-                  <button class="tab-btn" onclick="showTab('dynamic-db', this)">2. Dynamic Database Secrets Engine</button>
-                  <button class="tab-btn" onclick="showTab('auth-flow', this)">3. Zero-Trust Identity Handshake</button>
-                  <button class="tab-btn" onclick="showTab('secret-injection', this)">4. Sidecar Secret Injection</button>
-                  <button class="tab-btn" onclick="showTab('pki-tls', this)">5. PKI & Let's Encrypt TLS Engine</button>
-                  <button class="tab-btn" onclick="showTab('data-plane', this)">6. Verified Data Plane</button>
-                  <button class="tab-btn" onclick="showTab('comparison', this)">7. Threat Model Comparison</button>
+                  <button type="button" class="tab-btn active" data-tab="overview">1. Architecture & Telemetry</button>
+                  <button type="button" class="tab-btn" data-tab="dynamic-db">2. Dynamic Database Secrets Engine</button>
+                  <button type="button" class="tab-btn" data-tab="auth-flow">3. Zero-Trust Identity Handshake</button>
+                  <button type="button" class="tab-btn" data-tab="secret-injection">4. Sidecar Secret Injection</button>
+                  <button type="button" class="tab-btn" data-tab="pki-tls">5. PKI & Let's Encrypt TLS Engine</button>
+                  <button type="button" class="tab-btn" data-tab="data-plane">6. Verified Data Plane</button>
+                  <button type="button" class="tab-btn" data-tab="comparison">7. Threat Model Comparison</button>
                 </div>
 
                 <!-- TAB 1: ARCHITECTURE OVERVIEW & TELEMETRY -->
@@ -1698,16 +1698,27 @@ resource "kubernetes_deployment_v1" "frontend" {
                 const API = '/api';
 
                 function showTab(tabId, el) {
-                  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-                  document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+                  const allTabs = document.querySelectorAll('.tab-btn');
+                  for (let i = 0; i < allTabs.length; i++) {
+                    allTabs[i].classList.remove('active');
+                  }
+                  const allPanes = document.querySelectorAll('.tab-pane');
+                  for (let i = 0; i < allPanes.length; i++) {
+                    allPanes[i].classList.remove('active');
+                  }
                   if (el) {
                     el.classList.add('active');
-                  } else if (window.event && window.event.currentTarget) {
-                    window.event.currentTarget.classList.add('active');
+                  } else {
+                    const matchBtn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+                    if (matchBtn) matchBtn.classList.add('active');
                   }
                   const targetPane = document.getElementById(tabId);
-                  if (targetPane) targetPane.classList.add('active');
+                  if (targetPane) {
+                    targetPane.classList.add('active');
+                  }
                 }
+
+                window.showTab = showTab;
 
                 async function loadTelemetry() {
                   const target = document.getElementById('vault-status-json');
@@ -2079,7 +2090,20 @@ resource "kubernetes_deployment_v1" "frontend" {
                   }
                 };
 
-                document.getElementById('certForm').onsubmit = issueCertificate;
+                const certFormEl = document.getElementById('certForm');
+                if (certFormEl) {
+                  certFormEl.onsubmit = issueCertificate;
+                }
+
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                  btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const tab = this.getAttribute('data-tab');
+                    if (tab) {
+                      showTab(tab, this);
+                    }
+                  });
+                });
 
                 loadTelemetry();
                 loadTransactions();
