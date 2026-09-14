@@ -582,34 +582,81 @@ resource "kubernetes_deployment_v1" "backend" {
               }
 
               if (req.url === '/api/generate-dynamic-db-creds' && req.method === 'POST') {
-                const ephemeralUser = 'v-token-mern-app-' + Array.from({length:4}, () => Math.floor(Math.random()*16).toString(16)).join('');
-                const ephemeralPass = 'dyn-' + Math.random().toString(36).substring(2, 12) + '!#';
-                const leaseId = 'database/creds/mern-app-role/' + ephemeralUser;
-                const now = new Date();
-                const exp = new Date(now.getTime() + 3600*1000);
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', () => {
+                  try {
+                    const parsed = body ? JSON.parse(body) : {};
+                    const selectedRole = parsed.role || 'mern-app-role';
+                    const isReadOnly = selectedRole === 'mern-analytics-role';
+                    const prefix = isReadOnly ? 'v-token-analytics-' : 'v-token-mern-app-';
+                    const ephemeralUser = prefix + Array.from({length:4}, () => Math.floor(Math.random()*16).toString(16)).join('');
+                    const leaseId = 'database/creds/' + selectedRole + '/' + ephemeralUser;
+                    const now = new Date();
+                    const exp = new Date(now.getTime() + 3600*1000);
+                    const grantedRoles = isReadOnly ? [{ role: 'read', db: 'merndb' }] : [{ role: 'readWrite', db: 'merndb' }];
 
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                  status: 'SUCCESS',
-                  operation: 'vault read database/creds/mern-app-role',
-                  lease_id: leaseId,
-                  lease_duration: 3600,
-                  renewable: true,
-                  issued_at: now.toISOString(),
-                  expires_at: exp.toISOString(),
-                  ephemeral_credentials: {
-                    username: ephemeralUser,
-                    password: '•••••••••••••••••••••••• [Dynamically Generated in MongoDB by Vault]',
-                    database: 'merndb',
-                    assigned_roles: [{ role: 'readWrite', db: 'merndb' }]
-                  },
-                  audit_trace: {
-                    vault_role: 'mern-backend-role',
-                    policy: 'mern-vault-database-read',
-                    mongodb_command_executed_by_vault: 'db.createUser({ user: "' + ephemeralUser + '", pwd: "<random>", roles: [{role: "readWrite", db: "merndb"}] })',
-                    revocation_trigger: 'On lease expiration (3600s) or vault lease revoke, Vault automatically drops the MongoDB user.'
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                      status: 'SUCCESS',
+                      operation: 'vault read database/creds/' + selectedRole,
+                      requested_role: selectedRole,
+                      lease_id: leaseId,
+                      lease_duration: 3600,
+                      renewable: true,
+                      issued_at: now.toISOString(),
+                      expires_at: exp.toISOString(),
+                      ephemeral_credentials: {
+                        username: ephemeralUser,
+                        password: '•••••••••••••••••••••••• [Auto-Generated in MongoDB by Vault Engine]',
+                        database: 'merndb',
+                        assigned_roles: grantedRoles
+                      },
+                      execution_path_visualizer: [
+                        { step: 1, actor: 'Client / App Container', action: 'Calls /api/generate-dynamic-db-creds selecting role: ' + selectedRole, latency: '2ms' },
+                        { step: 2, actor: 'Vault Agent Sidecar', action: 'Authenticates via EKS ServiceAccount JWT (auth/kubernetes/mern-vault)', latency: '8ms' },
+                        { step: 3, actor: 'HashiCorp Vault Server', action: 'Evaluates policy "mern-vault-database-read" for path database/creds/' + selectedRole, latency: '4ms' },
+                        { step: 4, actor: 'Vault MongoDB Plugin', action: 'Connects to mongodb:27017 & runs: db.createUser({ user: "' + ephemeralUser + '", roles: ' + JSON.stringify(grantedRoles) + ' })', latency: '18ms' },
+                        { step: 5, actor: 'Vault Lease Manager', action: 'Attaches 1h TTL lease timer; registers automatic db.dropUser() hook on expiration/revocation', latency: '3ms' },
+                        { step: 6, actor: 'App Runtime', action: 'Injects dynamic ephemeral user credentials into active session context', latency: '1ms' }
+                      ],
+                      required_terraform_hcl: [
+                        '# 1. Enable Database Secrets Engine in Vault',
+                        'resource "vault_mount" "db" {',
+                        '  path = "database"',
+                        '  type = "database"',
+                        '}',
+                        '',
+                        '# 2. Configure MongoDB Backend Connection (Root Access for Vault)',
+                        'resource "vault_database_secret_backend_connection" "mongodb" {',
+                        '  backend           = vault_mount.db.path',
+                        '  name              = "mongodb"',
+                        '  allowed_roles     = ["mern-app-role", "mern-analytics-role"]',
+                        '  verify_connection = false',
+                        '  mongodb {',
+                        '    connection_url = "mongodb://{{username}}:{{password}}@mongodb.mern-vault.svc.cluster.local:27017/admin?ssl=false"',
+                        '    username       = "admin"',
+                        '    password       = var.mongo_admin_password',
+                        '  }',
+                        '}',
+                        '',
+                        '# 3. Define Dynamic Role with MongoDB Creation Statements',
+                        'resource "vault_database_secret_backend_role" "' + (isReadOnly ? 'analytics' : 'mern_app') + '" {',
+                        '  backend             = vault_mount.db.path',
+                        '  name                = "' + selectedRole + '"',
+                        '  db_name             = vault_database_secret_backend_connection.mongodb.name',
+                        '  default_ttl         = 3600',
+                        '  creation_statements = [',
+                        '    "{\\"db\\": \\"merndb\\", \\"roles\\": ' + JSON.stringify(grantedRoles).replace(/"/g, '\\"') + '}"',
+                        '  ]',
+                        '}'
+                      ].join('\n')
+                    }));
+                  } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Dynamic DB generation error: ' + e.message }));
                   }
-                }));
+                });
                 return;
               }
 
@@ -640,31 +687,59 @@ resource "kubernetes_deployment_v1" "backend" {
                   try {
                     const parsed = body ? JSON.parse(body) : {};
                     const cn = parsed.common_name || 'frontend.mern-vault.demo.local';
+                    const certType = parsed.cert_type || 'server_tls';
                     const ttl = parsed.ttl || '24h';
                     const serial = '6a:8f:' + Array.from({length:6}, () => Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join(':');
                     const now = new Date();
-                    const exp = new Date(now.getTime() + 24*3600*1000);
+                    const exp = new Date(now.getTime() + (ttl === '7d' ? 7*24 : (ttl === '72h' ? 72 : 24))*3600*1000);
 
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
                       status: 'SUCCESS',
                       operation: 'vault write pki/issue/mern-vault-dot-io',
+                      use_case: certType === 'mtls_client' ? 'mTLS Pod-to-Pod Client Identity' : (certType === 'acme_ingress' ? 'Public Ingress Let\'s Encrypt / ACME' : 'Internal Service TLS'),
                       common_name: cn,
                       serial_number: serial,
-                      issuer: 'HashiCorp Vault Demo Root CA (Let\'s Encrypt Intermediate)',
+                      issuer: 'HashiCorp Vault Demo Root CA (Let\'s Encrypt ACME Intermediate)',
                       issued_at: now.toISOString(),
                       expires_at: exp.toISOString(),
                       ttl_requested: ttl,
-                      key_type: 'RSA 2048-bit (Ephemeral)',
-                      sans: [cn, 'localhost', '127.0.0.1'],
-                      certificate_pem: '-----BEGIN CERTIFICATE-----\nMIIElDCCA3ygAwIBAgIUOo...\n[DYNAMIC VAULT SIGNED CERTIFICATE]\n-----END CERTIFICATE-----',
+                      key_type: 'RSA 2048-bit (Generated in-memory, never stored on disk)',
+                      sans: [cn, 'localhost', '127.0.0.1', 'mongodb.mern-vault.svc.cluster.local'],
+                      certificate_pem: '-----BEGIN CERTIFICATE-----\nMIIElDCCA3ygAwIBAgIUOo' + serial.replace(/:/g, '') + '...\n[DYNAMIC VAULT SIGNED X.509 CERTIFICATE]\n-----END CERTIFICATE-----',
                       ca_chain_pem: '-----BEGIN CERTIFICATE-----\nMIIFajCCA1KgAwIBAgIUZ9...\n[VAULT ROOT & INTERMEDIATE CA CHAIN]\n-----END CERTIFICATE-----',
-                      audit_trace: {
-                        vault_role: 'mern-backend-role',
-                        policy: 'pki-issue-mern-vault',
-                        request_path: 'pki/issue/mern-vault-dot-io',
-                        acme_validation: 'ACME DNS-01 / Vault TLS Handshake Validated'
-                      }
+                      execution_path_visualizer: [
+                        { step: 1, actor: 'Service / Cert-Manager', action: 'Submits CSR / Issue request for ' + cn + ' to Vault PKI endpoint', latency: '2ms' },
+                        { step: 2, actor: 'Vault PKI Engine', action: 'Validates requested SANs against allowed_domains in role "mern-vault-dot-io"', latency: '5ms' },
+                        { step: 3, actor: 'Cryptographic Signer', action: 'Signs certificate with Vault Root CA private key in HSM/secure memory', latency: '12ms' },
+                        { step: 4, actor: 'Auditor & ACME Bridge', action: 'Records certificate issuance audit event & exports certificate + chain', latency: '3ms' }
+                      ],
+                      required_terraform_hcl: [
+                        '# 1. Enable Vault PKI Secrets Engine',
+                        'resource "vault_mount" "pki" {',
+                        '  path        = "pki"',
+                        '  type        = "pki"',
+                        '  default_lease_ttl_seconds = 86400',
+                        '  max_lease_ttl_seconds     = 2592000',
+                        '}',
+                        '',
+                        '# 2. Generate Root CA / Configure Intermediate',
+                        'resource "vault_pki_secret_backend_root_cert" "root" {',
+                        '  backend     = vault_mount.pki.path',
+                        '  type        = "internal"',
+                        '  common_name = "HashiCorp Vault Demo Root CA"',
+                        '  ttl         = "315360000"',
+                        '}',
+                        '',
+                        '# 3. Define PKI Role for Automated Domain Issuance',
+                        'resource "vault_pki_secret_backend_role" "pki_role" {',
+                        '  backend          = vault_mount.pki.path',
+                        '  name             = "mern-vault-dot-io"',
+                        '  ttl              = 86400',
+                        '  allow_subdomains = true',
+                        '  allowed_domains  = ["mern-vault.demo.local", "hashidemos.io", "cluster.local"]',
+                        '}'
+                      ].join('\n')
                     }));
                   } catch (e) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
