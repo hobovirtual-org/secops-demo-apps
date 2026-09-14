@@ -2136,16 +2136,71 @@ resource "kubernetes_deployment_v1" "frontend" {
   depends_on = [kubernetes_namespace_v1.app]
 }
 
+# ── ACM Public TLS Certificate for Custom FQDN (Let's Encrypt / Amazon Trust CA) ──
+resource "aws_acm_certificate" "cert" {
+  count             = var.route53_zone_name != "" && var.fqdn != "" ? 1 : 0
+  domain_name       = var.fqdn
+  validation_method = "DNS"
+
+  tags = {
+    Name        = "${local.name_prefix}-frontend-cert"
+    Environment = var.environment
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "cert_validation" {
+  for_each = var.route53_zone_name != "" && var.fqdn != "" ? {
+    for dvo in aws_acm_certificate.cert[0].domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  } : {}
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main[0].zone_id
+}
+
+resource "aws_acm_certificate_validation" "cert" {
+  count                   = var.route53_zone_name != "" && var.fqdn != "" ? 1 : 0
+  certificate_arn         = aws_acm_certificate.cert[0].arn
+  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+}
+
+# ── Frontend LoadBalancer (HTTP 80 & HTTPS 443 with TLS Termination) ──────
 resource "kubernetes_service_v1" "frontend" {
   metadata {
     name      = "mern-frontend"
     namespace = local.k8s_namespace
+    annotations = var.route53_zone_name != "" && var.fqdn != "" ? {
+      "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"                = aws_acm_certificate.cert[0].arn
+      "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"               = "443"
+      "service.beta.kubernetes.io/aws-load-balancer-backend-protocol"        = "http"
+      "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout" = "60"
+    } : {}
   }
   spec {
     selector = { app = "mern-frontend" }
     port {
+      name        = "http"
       port        = 80
       target_port = 3000
+    }
+    dynamic "port" {
+      for_each = var.route53_zone_name != "" && var.fqdn != "" ? [1] : []
+      content {
+        name        = "https"
+        port        = 443
+        target_port = 3000
+      }
     }
     type = "LoadBalancer"
   }

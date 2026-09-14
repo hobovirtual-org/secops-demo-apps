@@ -38,6 +38,11 @@ output "route53_fqdn" {
   value       = length(aws_route53_record.app) > 0 ? aws_route53_record.app[0].fqdn : ""
 }
 
+output "acm_certificate_arn" {
+  description = "ARN of the validated ACM TLS certificate attached to the Load Balancer on port 443."
+  value       = length(aws_acm_certificate_validation.cert) > 0 ? aws_acm_certificate_validation.cert[0].certificate_arn : ""
+}
+
 output "frontend_service" {
   description = "Kubernetes service command for the React frontend."
   value       = "kubectl get svc mern-frontend -n ${local.k8s_namespace}"
