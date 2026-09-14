@@ -1959,7 +1959,7 @@ resource "kubernetes_deployment_v1" "frontend" {
                   const pill = document.getElementById('currentSecurityPill');
                   const urlEl = document.getElementById('activeEndpointUrl');
                   const issuerEl = document.getElementById('activeCertIssuer');
-                  const host = "${var.fqdn != "" ? var.fqdn : "mern-vault.christian-renaud.sbx.hashidemos.io"}";
+                  const host = '${var.fqdn != "" ? var.fqdn : "mern-vault.christian-renaud.sbx.hashidemos.io"}';
                   const btnHttps = document.getElementById('btnSwitchHttps');
                   const btnHttp = document.getElementById('btnSwitchHttp');
 
