@@ -2180,8 +2180,8 @@ resource "kubernetes_service_v1" "frontend" {
   metadata {
     name      = "mern-frontend"
     namespace = local.k8s_namespace
-    annotations = var.route53_zone_name != "" && var.fqdn != "" ? {
-      "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"                = aws_acm_certificate.cert[0].arn
+    annotations = length(aws_acm_certificate_validation.cert) > 0 ? {
+      "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"                = aws_acm_certificate_validation.cert[0].certificate_arn
       "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"               = "443"
       "service.beta.kubernetes.io/aws-load-balancer-backend-protocol"        = "http"
       "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout" = "60"
@@ -2208,6 +2208,7 @@ resource "kubernetes_service_v1" "frontend" {
   depends_on = [
     kubernetes_namespace_v1.app,
     module.eks.eks_managed_node_groups,
+    aws_acm_certificate_validation.cert,
   ]
 }
 
