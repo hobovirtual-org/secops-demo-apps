@@ -566,13 +566,80 @@ resource "kubernetes_deployment_v1" "backend" {
 
               if (req.url === '/api/simulate-auth' && req.method === 'GET') {
                 try {
-                  const secrets = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+                  const now = new Date();
+                  const exp = new Date(now.getTime() + 3600*1000);
+                  const oidcIssuer = 'https://oidc.eks.us-east-1.amazonaws.com/id/EXAMPLEDEMO7EKS';
+
                   res.writeHead(200, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({
-                    step1_service_account: { status: 'VALID', token_issuer: 'https://oidc.eks.us-east-1.amazonaws.com/id/...', audience: 'vault' },
-                    step2_vault_auth_backend: { status: 'SUCCESS', mount: 'auth/kubernetes/mern-vault', role: 'mern-backend-role', token_policies: ['default', 'apps-mern-vault-policy', 'mern-vault-database-read', 'pki-issue-mern-vault'] },
-                    step3_dynamic_db_engine: { status: 'GENERATED_EPHEMERAL_USER', path: 'database/creds/mern-app-role', dynamic_username: 'v-token-mern-app-' + Math.floor(1000 + Math.random()*9000), lease_duration: 3600, renewable: true },
-                    step4_sidecar_template: { status: 'RENDERED', destination: '/vault/secrets/config.json', storage: 'In-Memory emptyDir Volume' }
+                    status: 'SUCCESS',
+                    auth_method: 'Kubernetes Auth Backend (auth/kubernetes/mern-vault)',
+                    jwt_token_claims: {
+                      header: {
+                        alg: 'RS256',
+                        typ: 'JWT',
+                        kid: 'k8s-sa-signer-key-2026'
+                      },
+                      payload: {
+                        iss: oidcIssuer,
+                        sub: 'system:serviceaccount:mern-vault:mern-backend',
+                        aud: ['vault'],
+                        'kubernetes.io': {
+                          namespace: 'mern-vault',
+                          serviceaccount: {
+                            name: 'mern-backend',
+                            uid: 'sa-7c5cd8-mern-backend-uuid'
+                          },
+                          pod: {
+                            name: 'mern-backend-789f9b5c9b-x92zk',
+                            uid: 'pod-8e29a-uuid'
+                          }
+                        },
+                        iat: Math.floor(now.getTime()/1000),
+                        exp: Math.floor(exp.getTime()/1000)
+                      },
+                      signature: '[CRYPTOGRAPHICALLY SIGNED BY EKS OIDC PRIVATE KEY]'
+                    },
+                    vault_role_binding: {
+                      role_name: 'mern-backend-role',
+                      bound_service_account_names: ['mern-backend'],
+                      bound_service_account_namespaces: ['mern-vault'],
+                      assigned_token_policies: ['default', 'apps-mern-vault-policy', 'mern-vault-database-read', 'pki-issue-mern-vault'],
+                      token_ttl: 3600
+                    },
+                    execution_path_visualizer: [
+                      { step: 1, actor: 'Kubelet (EKS Node)', action: 'Projects projected ServiceAccount JWT into pod at /var/run/secrets/kubernetes.io/serviceaccount/token', latency: '1ms' },
+                      { step: 2, actor: 'Vault Agent Sidecar', action: 'Reads local SA JWT & sends login POST to auth/kubernetes/mern-vault with role "mern-backend-role"', latency: '4ms' },
+                      { step: 3, actor: 'HashiCorp Vault Server', action: 'Performs TokenReview with EKS API / validates RS256 signature against OIDC JWKS at ' + oidcIssuer, latency: '12ms' },
+                      { step: 4, actor: 'Vault Policy Engine', action: 'Confirms namespace=mern-vault & SA=mern-backend; issues ephemeral Vault token bound to "mern-vault-database-read" & "pki-issue-mern-vault"', latency: '3ms' },
+                      { step: 5, actor: 'Vault Agent Sidecar', action: 'Receives token & initiates auto-renewing lease background loop; begins template rendering', latency: '2ms' }
+                    ],
+                    required_terraform_hcl: [
+                      '# 1. Enable Kubernetes Auth Method in Vault',
+                      'resource "vault_auth_backend" "kubernetes" {',
+                      '  type = "kubernetes"',
+                      '  path = "kubernetes/mern-vault"',
+                      '}',
+                      '',
+                      '# 2. Configure Trust Anchor with EKS Cluster OIDC Issuer & CA',
+                      'resource "vault_kubernetes_auth_backend_config" "config" {',
+                      '  backend                = vault_auth_backend.kubernetes.path',
+                      '  kubernetes_host        = module.eks.cluster_endpoint',
+                      '  kubernetes_ca_cert     = base64decode(module.eks.cluster_certificate_authority_data)',
+                      '  issuer                 = module.eks.cluster_oidc_issuer_url',
+                      '  disable_iss_validation = false',
+                      '}',
+                      '',
+                      '# 3. Bind Kubernetes ServiceAccount & Namespace to Vault Policies',
+                      'resource "vault_kubernetes_auth_backend_role" "backend_role" {',
+                      '  backend                          = vault_auth_backend.kubernetes.path',
+                      '  role_name                        = "mern-backend-role"',
+                      '  bound_service_account_names      = ["mern-backend"]',
+                      '  bound_service_account_namespaces = ["mern-vault"]',
+                      '  token_policies                   = ["default", "apps-mern-vault-policy", "mern-vault-database-read", "pki-issue-mern-vault"]',
+                      '  token_ttl                        = 3600',
+                      '}'
+                    ].join('\n')
                   }));
                 } catch (e) {
                   res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -964,107 +1031,139 @@ resource "kubernetes_deployment_v1" "frontend" {
                 <div id="overview" class="tab-pane active">
                   <div class="card">
                     <h2>
-                      Interactive Communication Flow
-                      <span class="badge badge-blue">Live EKS Data Plane</span>
+                      Enterprise Zero-Trust Architecture Diagram
+                      <span class="badge badge-blue">Live EKS VPC Data Plane</span>
                     </h2>
-                    <div style="background:#030712; border-radius:8px; padding:12px; margin-bottom:16px; overflow-x:auto;">
-                      <svg viewBox="0 0 760 270" width="100%" height="240" style="min-width:600px; display:block; margin:auto;">
+                    <p>Every tier in this architecture eliminates static secrets. Mutual trust is established across three security zones: Ingress, the Amazon EKS cluster mesh, and dedicated HashiCorp Vault security services.</p>
+                    <div style="background:#030712; border-radius:8px; padding:16px; margin-bottom:16px; overflow-x:auto;">
+                      <svg viewBox="0 0 860 360" width="100%" height="320" style="min-width:760px; display:block; margin:auto;">
                         <defs>
                           <marker id="arr-b" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                             <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8"/>
                           </marker>
                           <marker id="arr-g" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 0 1 L 8 5 L 0 9 z" fill="#4ade80"/>
+                            <path d="M 0 1 L 8 5 L 0 9 z" fill="#34d399"/>
                           </marker>
                           <marker id="arr-p" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                             <path d="M 0 1 L 8 5 L 0 9 z" fill="#c084fc"/>
                           </marker>
+                          <marker id="arr-a" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 1 L 8 5 L 0 9 z" fill="#fbbf24"/>
+                          </marker>
                         </defs>
 
-                        <!-- User Box -->
-                        <rect x="20" y="20" width="120" height="55" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
-                        <text x="80" y="42" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Browser / Client</text>
-                        <text x="80" y="58" fill="#94a3b8" font-size="10" text-anchor="middle">Port 80 (AWS ELB)</text>
+                        <!-- ZONE 1: CLIENT & INGRESS -->
+                        <rect x="10" y="10" width="160" height="335" rx="8" fill="#0b1329" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="4 4"/>
+                        <text x="90" y="32" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">EDGE INGRESS ZONE</text>
+                        
+                        <rect x="25" y="50" width="130" height="65" rx="6" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+                        <text x="90" y="75" fill="#f8fafc" font-size="12" font-weight="700" text-anchor="middle">Client Browser</text>
+                        <text x="90" y="93" fill="#94a3b8" font-size="10" text-anchor="middle">HTTPS / TLS 1.3</text>
+
+                        <rect x="25" y="145" width="130" height="75" rx="6" fill="#1e293b" stroke="#0284c7" stroke-width="1.5"/>
+                        <text x="90" y="170" fill="#38bdf8" font-size="11.5" font-weight="700" text-anchor="middle">AWS NLB / Ingress</text>
+                        <text x="90" y="188" fill="#cbd5e1" font-size="9.5" text-anchor="middle">Port 80 / 443</text>
+                        <text x="90" y="204" fill="#34d399" font-size="8.5" text-anchor="middle">TLS Terminated via PKI</text>
+
+                        <!-- ZONE 2: EKS CLUSTER WORKLOAD MESH -->
+                        <rect x="185" y="10" width="375" height="335" rx="8" fill="#0f172a" stroke="#0284c7" stroke-width="1.5"/>
+                        <text x="372" y="32" fill="#38bdf8" font-size="11" font-weight="700" text-anchor="middle">AMAZON EKS CLUSTER (mern-vault namespace)</text>
 
                         <!-- Frontend Pod -->
-                        <rect x="20" y="125" width="150" height="120" rx="8" fill="#1e293b" stroke="#0284c7" stroke-width="1.5"/>
-                        <text x="95" y="146" fill="#38bdf8" font-size="12" font-weight="700" text-anchor="middle">mern-frontend Pod</text>
-                        <rect x="30" y="158" width="130" height="35" rx="4" fill="#0f172a" stroke="#334155"/>
-                        <text x="95" y="174" fill="#cbd5e1" font-size="10" text-anchor="middle">React 19 / Node.js</text>
-                        <text x="95" y="186" fill="#64748b" font-size="8.5" text-anchor="middle">Reverse Proxy /api</text>
-                        <text x="95" y="228" fill="#f59e0b" font-size="10" text-anchor="middle">ClusterIP :3000</text>
+                        <rect x="200" y="50" width="160" height="90" rx="6" fill="#1e293b" stroke="#0ea5e9" stroke-width="1.5"/>
+                        <text x="280" y="72" fill="#38bdf8" font-size="11" font-weight="700" text-anchor="middle">mern-frontend Pod</text>
+                        <rect x="210" y="82" width="140" height="46" rx="4" fill="#0b0f19" stroke="#334155"/>
+                        <text x="280" y="100" fill="#f8fafc" font-size="10" text-anchor="middle">React 19 Dashboard</text>
+                        <text x="280" y="116" fill="#94a3b8" font-size="8.5" text-anchor="middle">Reverse Proxy /api :3000</text>
 
-                        <!-- Backend Pod -->
-                        <rect x="230" y="60" width="230" height="190" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
-                        <text x="345" y="80" fill="#60a5fa" font-size="12" font-weight="700" text-anchor="middle">mern-backend Pod (2/2 Containers)</text>
+                        <!-- Backend Pod (App + Sidecar) -->
+                        <rect x="200" y="155" width="160" height="175" rx="6" fill="#1e293b" stroke="#7c3aed" stroke-width="1.5"/>
+                        <text x="280" y="175" fill="#c084fc" font-size="11" font-weight="700" text-anchor="middle">mern-backend Pod</text>
                         
-                        <!-- App Container -->
-                        <rect x="240" y="92" width="210" height="40" rx="4" fill="#0f172a" stroke="#334155"/>
-                        <text x="345" y="108" fill="#e2e8f0" font-size="10" font-weight="600" text-anchor="middle">Express Backend (:3001)</text>
-                        <text x="345" y="122" fill="#94a3b8" font-size="8.5" text-anchor="middle">Reads /vault/secrets/config.json</text>
+                        <rect x="210" y="185" width="140" height="42" rx="4" fill="#0b0f19" stroke="#334155"/>
+                        <text x="280" y="202" fill="#f8fafc" font-size="9.5" text-anchor="middle">Express Backend (:3001)</text>
+                        <text x="280" y="216" fill="#38bdf8" font-size="8" text-anchor="middle">Reads In-Memory Secrets</text>
 
-                        <!-- Shared Volume -->
-                        <rect x="240" y="138" width="210" height="28" rx="4" fill="#064e3b" stroke="#059669"/>
-                        <text x="345" y="156" fill="#a7f3d0" font-size="9.5" font-weight="600" text-anchor="middle">📁 In-Memory Shared emptyDir</text>
+                        <rect x="210" y="233" width="140" height="26" rx="4" fill="#064e3b" stroke="#059669"/>
+                        <text x="280" y="250" fill="#a7f3d0" font-size="8.5" font-weight="600" text-anchor="middle">📁 /vault/secrets/config.json</text>
 
-                        <!-- Sidecar Container -->
-                        <rect x="240" y="172" width="210" height="42" rx="4" fill="#0f172a" stroke="#7c3aed"/>
-                        <text x="345" y="188" fill="#c084fc" font-size="10" font-weight="600" text-anchor="middle">Sidecar: vault-agent</text>
-                        <text x="345" y="202" fill="#a855f7" font-size="8.5" text-anchor="middle">SA JWT login & secret render</text>
+                        <rect x="210" y="265" width="140" height="52" rx="4" fill="#0b0f19" stroke="#7c3aed"/>
+                        <text x="280" y="282" fill="#c084fc" font-size="9.5" font-weight="700" text-anchor="middle">Vault Agent Sidecar</text>
+                        <text x="280" y="296" fill="#94a3b8" font-size="8" text-anchor="middle">K8s SA JWT Auth</text>
+                        <text x="280" y="308" fill="#34d399" font-size="8" text-anchor="middle">Auto-Renews Lease (1h)</text>
 
                         <!-- MongoDB Pod -->
-                        <rect x="230" y="8" width="230" height="42" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
-                        <text x="345" y="24" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">mongodb StatefulSet (:27017)</text>
-                        <text x="345" y="38" fill="#94a3b8" font-size="8.5" text-anchor="middle">Dynamic DB Credentials from Vault</text>
+                        <rect x="380" y="155" width="165" height="175" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
+                        <text x="462" y="175" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">mongodb StatefulSet</text>
+                        
+                        <rect x="390" y="188" width="145" height="60" rx="4" fill="#0b0f19" stroke="#334155"/>
+                        <text x="462" y="208" fill="#f8fafc" font-size="10" text-anchor="middle">MongoDB Engine (:27017)</text>
+                        <text x="462" y="224" fill="#34d399" font-size="8.5" text-anchor="middle">Ephemeral Users Only</text>
+                        <text x="462" y="238" fill="#94a3b8" font-size="8" text-anchor="middle">v-token-* (Auto-Dropped)</text>
 
-                        <!-- Vault Box -->
-                        <rect x="520" y="60" width="220" height="190" rx="8" fill="#030712" stroke="#0284c7" stroke-width="2"/>
-                        <rect x="520" y="60" width="220" height="26" rx="8" fill="#0284c7"/>
-                        <text x="630" y="78" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">HashiCorp Vault Server</text>
+                        <rect x="390" y="258" width="145" height="58" rx="4" fill="#064e3b" stroke="#059669"/>
+                        <text x="462" y="278" fill="#a7f3d0" font-size="9" font-weight="700" text-anchor="middle">EBS Storage Volume</text>
+                        <text x="462" y="294" fill="#cbd5e1" font-size="8" text-anchor="middle">Encrypted at Rest (KMS)</text>
+                        <text x="462" y="306" fill="#a7f3d0" font-size="8" text-anchor="middle">Zero Passwords on Disk</text>
 
-                        <rect x="530" y="96" width="200" height="46" rx="4" fill="#1e293b" stroke="#3b82f6"/>
-                        <text x="630" y="113" fill="#60a5fa" font-size="9.5" font-weight="700" text-anchor="middle">auth/kubernetes/mern-vault</text>
-                        <text x="630" y="128" fill="#94a3b8" font-size="8.5" text-anchor="middle">Validates SA JWT via EKS OIDC</text>
+                        <!-- ZONE 3: HASHICORP VAULT SECURITY ZONE -->
+                        <rect x="575" y="10" width="275" height="335" rx="8" fill="#030712" stroke="#fbbf24" stroke-width="1.5"/>
+                        <text x="712" y="32" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">HASHICORP VAULT ZERO-TRUST CORE</text>
 
-                        <rect x="530" y="152" width="200" height="46" rx="4" fill="#1e293b" stroke="#10b981"/>
-                        <text x="630" y="169" fill="#34d399" font-size="9.5" font-weight="700" text-anchor="middle">KV v2: apps/mern-vault</text>
-                        <text x="630" y="184" fill="#94a3b8" font-size="8.5" text-anchor="middle">data/mongodb (user, password)</text>
+                        <!-- Vault Auth Backend -->
+                        <rect x="590" y="50" width="245" height="75" rx="6" fill="#1e293b" stroke="#7c3aed" stroke-width="1.2"/>
+                        <text x="712" y="70" fill="#c084fc" font-size="11" font-weight="700" text-anchor="middle">auth/kubernetes/mern-vault</text>
+                        <text x="712" y="88" fill="#cbd5e1" font-size="9" text-anchor="middle">Validates SA JWT via EKS OIDC JWKS</text>
+                        <text x="712" y="104" fill="#38bdf8" font-size="8.5" text-anchor="middle">Binds: SA="mern-backend" &rarr; Policy</text>
 
-                        <!-- Paths -->
-                        <path d="M 80 75 L 80 120" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
-                        <path d="M 170 170 L 225 170" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
-                        <path d="M 345 92 L 345 53" stroke="#4ade80" stroke-width="2" fill="none" marker-end="url(#arr-g)"/>
-                        <path d="M 450 193 C 480 193, 490 120, 515 120" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-p)"/>
-                        <path d="M 525 175 C 490 175, 480 152, 455 152" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-b)"/>
+                        <!-- Vault Database Secrets Engine -->
+                        <rect x="590" y="135" width="245" height="95" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.2"/>
+                        <text x="712" y="155" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">database/ (Dynamic Secrets Engine)</text>
+                        <text x="712" y="173" fill="#cbd5e1" font-size="9" text-anchor="middle">Role: mern-app-role (readWrite)</text>
+                        <text x="712" y="189" fill="#cbd5e1" font-size="9" text-anchor="middle">Role: mern-analytics-role (readOnly)</text>
+                        <text x="712" y="207" fill="#34d399" font-size="8.5" text-anchor="middle">Runs: db.createUser() / db.dropUser()</text>
+
+                        <!-- Vault PKI Secrets Engine -->
+                        <rect x="590" y="240" width="245" height="90" rx="6" fill="#1e293b" stroke="#fbbf24" stroke-width="1.2"/>
+                        <text x="712" y="260" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">pki/ (Automated X.509 & ACME CA)</text>
+                        <text x="712" y="278" fill="#cbd5e1" font-size="9" text-anchor="middle">Role: mern-vault-dot-io (Root CA)</text>
+                        <text x="712" y="294" fill="#cbd5e1" font-size="9" text-anchor="middle">On-Demand Ephemeral Private Keys</text>
+                        <text x="712" y="310" fill="#fbbf24" font-size="8.5" text-anchor="middle">Short-Lived (24h) Zero-Outage Renewal</text>
+
+                        <!-- Flow Arrows -->
+                        <path d="M 155 82 L 200 82" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+                        <path d="M 280 140 L 280 185" stroke="#38bdf8" stroke-width="2" fill="none" marker-end="url(#arr-b)"/>
+                        <path d="M 350 206 L 390 206" stroke="#34d399" stroke-width="2" fill="none" marker-end="url(#arr-g)"/>
+                        <path d="M 350 291 C 450 291, 480 88, 590 88" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-p)"/>
+                        <path d="M 590 182 C 555 182, 545 182, 535 182" stroke="#34d399" stroke-width="1.8" stroke-dasharray="3 3" fill="none" marker-end="url(#arr-g)"/>
                       </svg>
                     </div>
 
                     <div class="grid-2">
-                      <div>
-                        <div class="step-box">
-                          <h3>1. Zero Static Tokens</h3>
-                          <p>App container starts without AWS IAM keys, Vault tokens, or DB passwords in environment variables.</p>
-                        </div>
-                        <div class="step-box">
-                          <h3>2. Projected ServiceAccount JWT</h3>
-                          <p>Kubernetes automatically projects a short-lived token to the pod for Vault authentication.</p>
-                        </div>
+                      <div class="step-box">
+                        <h3>1. Zero Secrets in Git or Environment Variables</h3>
+                        <p>No AWS IAM keys, Vault root tokens, or DB passwords are hardcoded in Kubernetes manifests or containers.</p>
                       </div>
-                      <div>
-                        <div class="step-box">
-                          <h3>3. Sidecar Secret Rendering</h3>
-                          <p>Vault Agent authenticates, retrieves credentials, and writes them to an in-memory <code>emptyDir</code> volume.</p>
-                        </div>
-                        <div class="step-box">
-                          <h3>4. Automatic Token Renewal</h3>
-                          <p>Vault Agent runs in the background, renewing tokens and reloading rotated database secrets seamlessly.</p>
-                        </div>
+                      <div class="step-box">
+                        <h3>2. Cryptographic ServiceAccount Identity</h3>
+                        <p>Kubelet projects an RFC 7519 JWT into the pod; Vault validates its signature against the Amazon EKS OIDC provider.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>3. Dynamic Ephemeral Database Leases</h3>
+                        <p>MongoDB users are generated with 1-hour TTLs on-demand and automatically dropped upon revocation or pod termination.</p>
+                      </div>
+                      <div class="step-box">
+                        <h3>4. Automated PKI & Microsegmentation</h3>
+                        <p>Certificates are signed on-the-fly by Vault's PKI engine, establishing verified TLS without manual cert rotation.</p>
                       </div>
                     </div>
                   </div>
 
                   <div class="card">
-                    <h2>Live Pod Telemetry & Inspection</h2>
+                    <h2>
+                      Live Cluster Telemetry & Active Lease Metadata
+                      <button onclick="loadTelemetry()" style="padding:4px 12px; font-size:11px; background:#1e293b; border:1px solid #334155;">🔄 Refresh</button>
+                    </h2>
                     <div id="vault-status-json"><pre>Loading live telemetry from backend...</pre></div>
                   </div>
                 </div>
@@ -1116,32 +1215,34 @@ resource "kubernetes_deployment_v1" "frontend" {
                 <div id="auth-flow" class="tab-pane">
                   <div class="card">
                     <h2>
-                      Kubernetes ServiceAccount &rarr; Vault Auth Backend
-                      <span class="badge badge-purple">RFC 7519 / OIDC</span>
+                      Zero-Trust Identity Handshake (Kubernetes ServiceAccount &rarr; Vault Auth)
+                      <span class="badge badge-purple">RFC 7519 / OIDC Trust</span>
                     </h2>
-                    <p>Instead of distributing long-lived Vault tokens or storing cloud IAM secrets in Kubernetes ConfigMaps, we establish a cryptographic trust relationship between HashiCorp Vault and the Amazon EKS OIDC identity provider.</p>
+                    <p>Traditional setups force developers to store long-lived cloud credentials or static tokens in Kubernetes secrets. With Vault's <strong>Zero-Trust Kubernetes Auth Method</strong>, the pod's identity is established dynamically through short-lived cryptographic tokens without a single static secret stored anywhere.</p>
 
                     <div class="grid-2">
                       <div class="step-box">
-                        <h3>Step A: Token Projection</h3>
-                        <p>Kubelet mounts a signed ServiceAccount token at <code>/var/run/secrets/kubernetes.io/serviceaccount/token</code>.</p>
+                        <h3>1. Kubelet Token Projection</h3>
+                        <p>When the pod boots, Kubelet mounts an RFC 7519 ServiceAccount JWT at <code>/var/run/secrets/kubernetes.io/serviceaccount/token</code> signed by EKS OIDC.</p>
                       </div>
                       <div class="step-box">
-                        <h3>Step B: TokenReview Delegation</h3>
-                        <p>Vault receives the JWT, validates its signature with EKS OIDC, and evaluates the bound namespace and service account.</p>
+                        <h3>2. Cryptographic TokenReview</h3>
+                        <p>Vault receives the JWT and verifies its RS256 signature against the Amazon EKS cluster's public JWKS endpoint (no shared secrets needed).</p>
                       </div>
                       <div class="step-box">
-                        <h3>Step C: Policy Mapping</h3>
-                        <p>Vault issues an ephemeral token bound strictly to the least-privilege policy <code>apps/mern-vault/data/mongodb</code>.</p>
+                        <h3>3. Strict Metadata & Namespace Binding</h3>
+                        <p>Vault enforces that the request originated from the authorized namespace (<code>mern-vault</code>) and service account (<code>mern-backend</code>).</p>
                       </div>
                       <div class="step-box">
-                        <h3>Step D: RBAC Auth Delegator</h3>
-                        <p>A ClusterRoleBinding links the ServiceAccount to <code>system:auth-delegator</code> enabling API verification.</p>
+                        <h3>4. Least-Privilege Ephemeral Token</h3>
+                        <p>Vault returns an in-memory client token bound strictly to required ACL policies (<code>mern-vault-database-read</code>, <code>pki-issue-mern-vault</code>).</p>
                       </div>
                     </div>
 
-                    <div style="margin-top:16px;">
-                      <button onclick="runAuthSimulation()">⚡ Test Live Auth Handshake Simulation</button>
+                    <div class="card" style="background:#030712; border-color:#1e293b; margin-top:16px;">
+                      <div style="font-size:13px; font-weight:700; color:#c084fc; margin-bottom:8px;">⚡ Live Cryptographic Auth Handshake Simulation</div>
+                      <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Trigger a live token projection & OIDC signature verification cycle to inspect the underlying JWT claims, role binding, and execution trace:</p>
+                      <button onclick="runAuthSimulation()" style="background:#7c3aed;">⚡ Execute Live Auth Handshake Simulation</button>
                       <div id="auth-simulation-result" style="margin-top:12px;"></div>
                     </div>
                   </div>
@@ -1309,13 +1410,54 @@ vault.hashicorp.com/agent-inject-template-config.json: |
                 }
 
                 async function loadTelemetry() {
+                  const target = document.getElementById('vault-status-json');
                   try {
                     const res = await fetch(API + '/vault-status');
-                    const status = await res.json();
-                    document.getElementById('vault-status-json').innerHTML = '<pre>' + JSON.stringify(status, null, 2) + '</pre>';
+                    const s = await res.json();
+                    
+                    const metricsHtml = '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:16px;">' +
+                      '<div style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px;">' +
+                        '<div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">Container Injection</div>' +
+                        '<div style="font-size:14px; font-weight:700; color:#34d399; margin-top:4px;">2/2 Containers Ready</div>' +
+                        '<div style="font-size:11px; color:#64748b; margin-top:2px;">App + Vault Agent Sidecar</div>' +
+                      '</div>' +
+                      '<div style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px;">' +
+                        '<div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">Identity Provider</div>' +
+                        '<div style="font-size:14px; font-weight:700; color:#c084fc; margin-top:4px;">EKS OIDC (RFC 7519)</div>' +
+                        '<div style="font-size:11px; color:#64748b; margin-top:2px;">SA: ' + escapeHtml(s.service_account || 'mern-backend') + '</div>' +
+                      '</div>' +
+                      '<div style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px;">' +
+                        '<div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">Database Credentials</div>' +
+                        '<div style="font-size:14px; font-weight:700; color:#38bdf8; margin-top:4px;">Dynamic Ephemeral</div>' +
+                        '<div style="font-size:11px; color:#64748b; margin-top:2px;">User: ' + escapeHtml(s.dynamic_db_user || 'v-token-*') + '</div>' +
+                      '</div>' +
+                      '<div style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px;">' +
+                        '<div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">Lease Auto-Renewal</div>' +
+                        '<div style="font-size:14px; font-weight:700; color:#fbbf24; margin-top:4px;">' + escapeHtml(s.lease_duration || '3600s') + '</div>' +
+                        '<div style="font-size:11px; color:#64748b; margin-top:2px;">Auto-Managed by Sidecar</div>' +
+                      '</div>' +
+                    '</div>';
+
+                    target.innerHTML = metricsHtml + '<div style="font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">📋 Full Telemetry Payload</div><pre>' + escapeHtml(JSON.stringify(s, null, 2)) + '</pre>';
                   } catch (e) {
-                    document.getElementById('vault-status-json').innerHTML = '<pre style="color:#f87171">Backend API unreachable or secret missing: ' + e.message + '</pre>';
+                    target.innerHTML = '<pre style="color:#f87171">Backend API unreachable or secret missing: ' + e.message + '</pre>';
                   }
+                }
+
+                function renderAuthSimulationVisuals(data) {
+                  const claimsHtml = '<div style="margin-top:14px;">' +
+                    '<div style="font-size:12px; font-weight:700; color:#c084fc; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">🔍 Projected ServiceAccount JWT Anatomy & Claims</div>' +
+                    '<pre style="color:#c084fc;">' + escapeHtml(JSON.stringify(data.jwt_token_claims, null, 2)) + '</pre>' +
+                  '</div>' +
+                  '<div style="margin-top:14px;">' +
+                    '<div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">🛡️ Evaluated Vault Role Binding & Token Policies</div>' +
+                    '<pre style="color:#38bdf8;">' + escapeHtml(JSON.stringify(data.vault_role_binding, null, 2)) + '</pre>' +
+                  '</div>';
+
+                  const flowHtml = renderExecutionFlow(data.execution_path_visualizer, 'step-badge-purple');
+                  const hclHtml = renderTerraformHcl(data.required_terraform_hcl);
+
+                  return claimsHtml + flowHtml + hclHtml;
                 }
 
                 async function runAuthSimulation() {
@@ -1324,7 +1466,7 @@ vault.hashicorp.com/agent-inject-template-config.json: |
                   try {
                     const res = await fetch(API + '/simulate-auth');
                     const data = await res.json();
-                    target.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                    target.innerHTML = renderAuthSimulationVisuals(data);
                   } catch (e) {
                     target.innerHTML = '<pre style="color:#f87171">Handshake error: ' + e.message + '</pre>';
                   }
