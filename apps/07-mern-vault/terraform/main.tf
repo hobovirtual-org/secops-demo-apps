@@ -1139,10 +1139,15 @@ resource "kubernetes_deployment_v1" "frontend" {
                 .step-box { background: #1e293b; border-left: 4px solid #0284c7; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; }
                 .step-box h3 { margin: 0 0 4px; font-size: 14px; color: #f8fafc; }
                 .step-box p { margin: 0; font-size: 12px; color: #94a3b8; }
-                .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
-                .compare-table th, .compare-table td { padding: 10px 12px; border-bottom: 1px solid #1f2937; }
+                .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; table-layout: fixed; }
+                .compare-table th, .compare-table td { padding: 10px 12px; border-bottom: 1px solid #1f2937; vertical-align: top; }
                 .compare-table th { background: #1e293b; color: #f8fafc; font-weight: 600; }
                 .compare-table td { color: #cbd5e1; }
+                .compare-table th:nth-child(1), .compare-table td:nth-child(1) { width: 18%; }
+                .compare-table th:nth-child(2), .compare-table td:nth-child(2) { width: 30%; }
+                .compare-table th:nth-child(3), .compare-table td:nth-child(3) { width: 38%; }
+                .compare-table th:nth-child(4), .compare-table td:nth-child(4) { width: 14%; text-align: center; }
+                .compare-table td:nth-child(4) .badge { white-space: nowrap; display: inline-block; }
                 pre { background: #030712; color: #38bdf8; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin: 0; border: 1px solid #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
                 form { display: flex; gap: 10px; margin-bottom: 16px; }
                 input, select { background: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 10px 14px; border-radius: 6px; font-size: 14px; }
@@ -1601,26 +1606,30 @@ resource "kubernetes_deployment_v1" "frontend" {
                     <!-- Scorecard Header Cards -->
                     <div class="grid-2" style="margin-bottom:16px;">
                       <div style="background:#450a0a; border:1px solid #991b1b; border-radius:8px; padding:16px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                          <span style="font-size:12px; font-weight:700; color:#fca5a5; text-transform:uppercase;">Traditional Kubernetes Secrets</span>
-                          <span class="badge" style="background:#7f1d1d; color:#fecaca; border:1px solid #ef4444;">High Risk (Score: 32/100)</span>
-                        </div>
-                        <div style="font-size:12px; color:#fca5a5; margin-top:8px; line-height:1.5;">
-                          &bull; Base64 static tokens in plaintext env variables<br/>
-                          &bull; Credentials rarely rotated (avg. 180+ days)<br/>
-                          &bull; Single pod breach exposes entire database cluster
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:6px;">
+                            <span style="font-size:12px; font-weight:700; color:#fca5a5; text-transform:uppercase;">Traditional Kubernetes Secrets</span>
+                            <span class="badge" style="background:#7f1d1d; color:#fecaca; border:1px solid #ef4444; white-space:nowrap;">High Risk (Score: 32/100)</span>
+                          </div>
+                          <div style="font-size:12px; color:#fca5a5; line-height:1.5;">
+                            &bull; Base64 static tokens in plaintext env variables<br/>
+                            &bull; Credentials rarely rotated (avg. 180+ days)<br/>
+                            &bull; Single pod breach exposes entire database cluster
+                          </div>
                         </div>
                       </div>
 
                       <div style="background:#064e3b; border:1px solid #059669; border-radius:8px; padding:16px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                          <span style="font-size:12px; font-weight:700; color:#6ee7b7; text-transform:uppercase;">HashiCorp Vault Zero-Trust</span>
-                          <span class="badge badge-green">Enterprise Hardened (Score: 98/100)</span>
-                        </div>
-                        <div style="font-size:12px; color:#a7f3d0; margin-top:8px; line-height:1.5;">
-                          &bull; Short-lived OIDC ServiceAccount tokens (RFC 7519)<br/>
-                          &bull; Dynamic ephemeral users auto-dropped on lease expiry<br/>
-                          &bull; In-memory RAM volume isolation with full audit logs
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:6px;">
+                            <span style="font-size:12px; font-weight:700; color:#6ee7b7; text-transform:uppercase;">HashiCorp Vault Zero-Trust</span>
+                            <span class="badge badge-green" style="white-space:nowrap;">Enterprise Hardened (Score: 98/100)</span>
+                          </div>
+                          <div style="font-size:12px; color:#a7f3d0; line-height:1.5;">
+                            &bull; Short-lived OIDC ServiceAccount tokens (RFC 7519)<br/>
+                            &bull; Dynamic ephemeral users auto-dropped on lease expiry<br/>
+                            &bull; In-memory RAM volume isolation with full audit logs
+                          </div>
                         </div>
                       </div>
                     </div>
