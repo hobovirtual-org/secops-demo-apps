@@ -20,7 +20,7 @@ output "cloudwatch_log_group" {
 
 output "vault_jwt_auth_path" {
   description = "Vault JWT auth method mount path."
-  value       = data.vault_auth_backend.jwt.path
+  value       = local.vault_jwt_path
 }
 
 output "vault_jwt_role" {

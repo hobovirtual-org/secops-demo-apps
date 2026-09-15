@@ -457,14 +457,19 @@ resource "vault_policy" "ai_agent" {
 
 # ── JWT Auth Method ───────────────────────────────────────────────────────────
 # auth/jwt is a shared mount managed centrally by vault-config/main.tf.
-# Read the existing backend rather than attempting to create/configure it.
+# List all auth backends via sys/auth (read permitted) and extract the jwt accessor
+# by index — avoids calling auth/<path>/config which requires additional permissions.
 
-data "vault_auth_backend" "jwt" {
-  path = local.vault_jwt_path
+data "vault_auth_backends" "all" {}
+
+locals {
+  # Index of the jwt mount in the backends list (matched by path suffix)
+  jwt_backend_index = index(data.vault_auth_backends.all.paths, "${local.vault_jwt_path}/")
+  jwt_accessor      = data.vault_auth_backends.all.accessors[local.jwt_backend_index]
 }
 
 resource "vault_jwt_auth_backend_role" "ai_agent" {
-  backend   = data.vault_auth_backend.jwt.path
+  backend   = local.vault_jwt_path
   role_name = local.vault_jwt_role
   role_type = "jwt"
 
@@ -507,6 +512,6 @@ resource "vault_identity_entity" "ai_agent" {
 # automatically associates the authenticated ECS task with the registry entry.
 resource "vault_identity_entity_alias" "ai_agent_jwt" {
   name           = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.ecs_task_role.name}/*"
-  mount_accessor = data.vault_auth_backend.jwt.accessor
+  mount_accessor = local.jwt_accessor
   canonical_id   = vault_identity_entity.ai_agent.id
 }
