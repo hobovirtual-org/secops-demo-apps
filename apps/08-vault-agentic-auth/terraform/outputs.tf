@@ -33,11 +33,6 @@ output "vault_policy_name" {
   value       = vault_policy.ai_agent.name
 }
 
-output "vault_kv_secret_path" {
-  description = "Vault KV-v2 path containing the watsonx API key."
-  value       = "${vault_mount.kv.path}/data/${local.vault_kv_agent_path}"
-}
-
 output "vault_db_role" {
   description = "Vault Database secrets engine role for dynamic Postgres credentials."
   value       = vault_database_secret_backend_role.agent_postgres.name

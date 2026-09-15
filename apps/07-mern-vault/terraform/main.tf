@@ -746,7 +746,7 @@ resource "kubernetes_deployment_v1" "backend" {
               if (req.url === '/api/pki-status' && req.method === 'GET') {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
-                  engine: 'Vault PKI Secrets Engine (Let\'s Encrypt / ACME / Internal CA)',
+                  engine: "Vault PKI Secrets Engine (Let's Encrypt / ACME / Internal CA)",
                   mount_path: 'pki/',
                   role: 'mern-vault-dot-io',
                   allowed_domains: ['mern-vault.demo.local', 'mern.vault.demo', 'hashidemos.io', 'cluster.local'],
@@ -783,7 +783,7 @@ resource "kubernetes_deployment_v1" "backend" {
                   },
                   server_identity: {
                     common_name: 'backend.mern-vault.svc.cluster.local',
-                    issuer: 'HashiCorp Vault Demo Root CA (Let\'s Encrypt Intermediate)',
+                    issuer: "HashiCorp Vault Demo Root CA (Let's Encrypt Intermediate)",
                     ca_fingerprint_sha256: '9b:4c:7e:21:55:aa:bb:cc:dd:ee:11:22:33:44:55:66',
                     mutual_auth_status: 'CLIENT_AND_SERVER_MUTUALLY_VERIFIED'
                   },
@@ -889,10 +889,10 @@ resource "kubernetes_deployment_v1" "backend" {
                     res.end(JSON.stringify({
                       status: 'SUCCESS',
                       operation: 'vault write pki/issue/mern-vault-dot-io',
-                      use_case: certType === 'mtls_client' ? 'mTLS Pod-to-Pod Client Identity' : (certType === 'acme_ingress' ? 'Public Ingress Let\'s Encrypt / ACME' : 'Internal Service TLS'),
+                      use_case: certType === 'mtls_client' ? 'mTLS Pod-to-Pod Client Identity' : (certType === 'acme_ingress' ? "Public Ingress Let's Encrypt / ACME" : 'Internal Service TLS'),
                       common_name: cn,
                       serial_number: serial,
-                      issuer: 'HashiCorp Vault Demo Root CA (Let\'s Encrypt ACME Intermediate)',
+                      issuer: "HashiCorp Vault Demo Root CA (Let's Encrypt ACME Intermediate)",
                       issued_at: now.toISOString(),
                       expires_at: exp.toISOString(),
                       ttl_requested: ttl,
