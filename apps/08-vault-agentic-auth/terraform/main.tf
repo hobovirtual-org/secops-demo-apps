@@ -122,7 +122,7 @@ resource "aws_route_table_association" "private" {
 # Agent task: egress to Vault (HTTPS) and Postgres sidecar only
 resource "aws_security_group" "agent_task" {
   name        = "${local.name_prefix}-agent-task-sg"
-  description = "ECS Fargate agent task — egress to Vault and Postgres sidecar"
+  description = "ECS Fargate agent task - egress to Vault and Postgres sidecar"
   vpc_id      = aws_vpc.main.id
 
   # Vault HTTPS
@@ -456,23 +456,15 @@ resource "vault_policy" "ai_agent" {
 }
 
 # ── JWT Auth Method ───────────────────────────────────────────────────────────
+# auth/jwt is a shared mount managed centrally by vault-config/main.tf.
+# Read the existing backend rather than attempting to create/configure it.
 
-resource "vault_jwt_auth_backend" "ecs" {
-  path               = local.vault_jwt_path
-  type               = "jwt"
-  description        = "JWT auth for ECS Fargate tasks (app-08)"
-  oidc_discovery_url = "https://oidc.${var.aws_region}.amazonaws.com"
-  bound_issuer       = "https://oidc.${var.aws_region}.amazonaws.com"
-
-  tune {
-    default_lease_ttl = var.vault_token_ttl
-    max_lease_ttl     = var.vault_token_max_ttl
-    token_type        = "default-service"
-  }
+data "vault_auth_backend" "jwt" {
+  path = local.vault_jwt_path
 }
 
 resource "vault_jwt_auth_backend_role" "ai_agent" {
-  backend   = vault_jwt_auth_backend.ecs.path
+  backend   = data.vault_auth_backend.jwt.path
   role_name = local.vault_jwt_role
   role_type = "jwt"
 
@@ -515,6 +507,6 @@ resource "vault_identity_entity" "ai_agent" {
 # automatically associates the authenticated ECS task with the registry entry.
 resource "vault_identity_entity_alias" "ai_agent_jwt" {
   name           = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.ecs_task_role.name}/*"
-  mount_accessor = vault_jwt_auth_backend.ecs.accessor
+  mount_accessor = data.vault_auth_backend.jwt.accessor
   canonical_id   = vault_identity_entity.ai_agent.id
 }

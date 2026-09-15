@@ -9,12 +9,13 @@ locals {
   # ECS task identity tokens are issued by the regional STS OIDC endpoint.
   ecs_oidc_issuer = "https://oidc.eks.${var.aws_region}.amazonaws.com"
 
-  # Vault JWT auth path and role
-  vault_jwt_path = "auth/jwt"
+  # Vault JWT auth path and role — auth/jwt is a shared mount managed by vault-config
+  vault_jwt_path = "jwt"
   vault_jwt_role = "ai-agent-role"
 
   # Vault secret paths — KV mount removed (Bedrock uses IAM, no API key in Vault)
-  vault_db_mount    = "database"
+  # Use an app-scoped mount path to avoid colliding with any pre-existing database/ mount
+  vault_db_mount    = "app08/database"
   vault_db_role     = "agent-postgres-role"
   vault_policy_name = "ai-agent-policy"
 

@@ -470,14 +470,14 @@ resource "vault_policy" "demo_app_08" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
 
-    # Database secrets engine — dynamic Postgres credentials
-    path "sys/mounts/database" {
+    # Database secrets engine — dynamic Postgres credentials (app-scoped mount)
+    path "sys/mounts/app08/database" {
       capabilities = ["create", "read", "update", "delete"]
     }
-    path "sys/mounts/database/*" {
+    path "sys/mounts/app08/database/*" {
       capabilities = ["create", "read", "update", "delete"]
     }
-    path "database/*" {
+    path "app08/database/*" {
       capabilities = ["create", "read", "update", "delete", "list", "sudo"]
     }
 

@@ -73,14 +73,3 @@ variable "db_creds_max_ttl" {
   default     = 14400
 }
 
-variable "vault_token_ttl" {
-  description = "TTL for Vault tokens issued to the agent via the JWT auth role."
-  type        = string
-  default     = "1h"
-}
-
-variable "vault_token_max_ttl" {
-  description = "Maximum TTL for Vault tokens issued to the agent via the JWT auth role."
-  type        = string
-  default     = "4h"
-}
