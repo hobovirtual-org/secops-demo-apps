@@ -1,15 +1,8 @@
-data "vault_auth_backend" "jwt" {
-  path = "jwt"
-}
-
-data "vault_auth_backend" "jwt_github" {
-  path = "jwt-github"
-}
-
 locals {
   name_prefix = "${var.project_name}-app08-${var.environment}"
 
-  # Vault JWT auth
+  # Vault JWT auth — jwt-github mount bootstrapped via CLI (see vault-config/main.tf)
+  vault_jwt_mount   = "jwt-github"
   vault_jwt_role    = "ai-agent-role"
   vault_policy_name = "ai-agent-policy"
 

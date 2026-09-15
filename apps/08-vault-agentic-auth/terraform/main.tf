@@ -15,7 +15,7 @@
 # This role binds the agent JWT to the ai-agent-policy.
 
 resource "vault_jwt_auth_backend_role" "ai_agent" {
-  backend   = "jwt-github"
+  backend   = local.vault_jwt_mount
   role_name = local.vault_jwt_role
   role_type = "jwt"
 
@@ -103,12 +103,14 @@ resource "vault_identity_entity" "ai_agent" {
   }
 }
 
-# Alias links the GitHub Actions JWT sub claim to the identity entity.
-# When the agent authenticates, Vault automatically associates its token
-# with this entity — making it visible in the Agent Registry.
+# Alias links the GitHub Actions JWT sub claim to the identity entity so
+# Vault associates authenticated tokens with the Agent Registry entry.
+# Requires the jwt-github mount accessor — set var.jwt_github_accessor
+# to the value from: vault auth list -format=json | jq '."jwt-github/".accessor'
 
 resource "vault_identity_entity_alias" "ai_agent_jwt" {
+  count          = var.jwt_github_accessor != "" ? 1 : 0
   name           = "repo:${var.github_repo}:ref:refs/heads/main"
-  mount_accessor = data.vault_auth_backend.jwt_github.accessor
+  mount_accessor = var.jwt_github_accessor
   canonical_id   = vault_identity_entity.ai_agent.id
 }

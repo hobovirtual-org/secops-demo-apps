@@ -31,3 +31,9 @@ variable "github_repo" {
   type        = string
   default     = "hobovirtual-org/secops-demo-apps"
 }
+
+variable "jwt_github_accessor" {
+  description = "Accessor of the jwt-github Vault auth mount. Used to create the identity entity alias for the Agent Registry. Obtain with: vault auth list -format=json | jq '.\"jwt-github/\".accessor'. Leave empty to skip alias creation."
+  type        = string
+  default     = ""
+}
