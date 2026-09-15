@@ -459,17 +459,6 @@ resource "vault_policy" "demo_app_08" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
 
-    # KV-v2 secrets engine — agent API key storage
-    path "sys/mounts/secret" {
-      capabilities = ["create", "read", "update", "delete"]
-    }
-    path "sys/mounts/secret/*" {
-      capabilities = ["create", "read", "update", "delete"]
-    }
-    path "secret/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-
     # Database secrets engine — dynamic Postgres credentials (app-scoped mount)
     path "sys/mounts/app08/database" {
       capabilities = ["create", "read", "update", "delete"]
