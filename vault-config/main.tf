@@ -435,27 +435,22 @@ resource "vault_policy" "demo_app_07" {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App 08 — vault-agentic-auth (GitHub Actions agent)
-#
-# One-time bootstrap (already done via CLI — same pattern as auth/jwt):
-#   vault auth enable -path=jwt-github jwt
-#   vault write auth/jwt-github/config \
-#     oidc_discovery_url="https://token.actions.githubusercontent.com" \
-#     bound_issuer="https://token.actions.githubusercontent.com"
-#
-# The demo-apps-vault-config provisioner token does not have sys/auth create
-# rights, so the mount itself is bootstrapped once and managed out-of-band.
-# All roles and policies inside it are managed here.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Read-only reference to the pre-existing jwt-github mount
-data "vault_auth_backend" "jwt_github" {
-  path = "jwt-github"
+# Dedicated JWT auth mount trusting GitHub Actions OIDC.
+# Kept separate from auth/jwt (HCP Terraform) so trust anchors are isolated.
+resource "vault_jwt_auth_backend" "github" {
+  path               = "jwt-github"
+  type               = "jwt"
+  description        = "JWT auth for GitHub Actions OIDC (app-08 agentic demo)"
+  oidc_discovery_url = "https://token.actions.githubusercontent.com"
+  bound_issuer       = "https://token.actions.githubusercontent.com"
 }
 
 # HCP Terraform provisioner role — lets the demo-app-08 workspace manage
 # roles and resources inside the jwt-github mount.
 resource "vault_jwt_auth_backend_role" "demo_app_08" {
-  backend        = data.vault_auth_backend.jwt_github.path
+  backend        = vault_jwt_auth_backend.github.path
   role_name      = "demo-app-08"
   token_policies = [vault_policy.demo_app_08.name]
   token_ttl      = 900
@@ -478,10 +473,17 @@ resource "vault_policy" "demo_app_08" {
   name = "demo-app-08-provisioner"
 
   policy = <<-POLICY
-    # GitHub Actions JWT auth mount — role management only (mount is pre-existing)
+    # GitHub Actions JWT auth mount — full lifecycle management
+    path "sys/auth/jwt-github" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/jwt-github/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
     path "auth/jwt-github/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
+    # Vault provider v5 namespace double-prefix workaround
     path "auth/auth/jwt-github/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }

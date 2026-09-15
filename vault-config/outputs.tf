@@ -8,7 +8,13 @@ output "jwt_role_names" {
     demo-app-05 = vault_jwt_auth_backend_role.demo_app_05.role_name
     demo-app-06 = vault_jwt_auth_backend_role.demo_app_06.role_name
     demo-app-07 = vault_jwt_auth_backend_role.demo_app_07.role_name
+    demo-app-08 = vault_jwt_auth_backend_role.demo_app_08.role_name
   }
+}
+
+output "jwt_github_accessor" {
+  description = "Accessor of the jwt-github auth mount. Set as jwt_github_accessor variable in the demo-app-08 workspace to enable Agent Registry entity alias."
+  value       = vault_jwt_auth_backend.github.accessor
 }
 
 output "vault_policy_names" {
