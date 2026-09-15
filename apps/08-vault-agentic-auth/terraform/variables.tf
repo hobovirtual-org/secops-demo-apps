@@ -62,15 +62,15 @@ variable "postgres_admin_password" {
 }
 
 variable "db_creds_ttl" {
-  description = "Default TTL for Vault-issued dynamic Postgres credentials."
-  type        = string
-  default     = "1h"
+  description = "Default TTL (in seconds) for Vault-issued dynamic Postgres credentials."
+  type        = number
+  default     = 3600
 }
 
 variable "db_creds_max_ttl" {
-  description = "Maximum TTL for Vault-issued dynamic Postgres credentials."
-  type        = string
-  default     = "4h"
+  description = "Maximum TTL (in seconds) for Vault-issued dynamic Postgres credentials."
+  type        = number
+  default     = 14400
 }
 
 variable "vault_token_ttl" {
