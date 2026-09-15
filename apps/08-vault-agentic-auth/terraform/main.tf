@@ -459,7 +459,7 @@ resource "vault_policy" "ai_agent" {
 # auth/jwt is a shared mount managed centrally by vault-config/main.tf.
 # This workspace only creates the role within it — no data source needed.
 
-resource "vault_jwt_auth_backend_role" "ai_agent" {
+resource "vault_jwt_auth_backend_role" "ecs_agent" {
   backend   = local.vault_jwt_path
   role_name = local.vault_jwt_role
   role_type = "jwt"

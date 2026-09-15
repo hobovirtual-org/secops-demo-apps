@@ -25,7 +25,7 @@ output "vault_jwt_auth_path" {
 
 output "vault_jwt_role" {
   description = "Vault JWT auth role name used by the ECS agent."
-  value       = vault_jwt_auth_backend_role.ai_agent.role_name
+  value       = vault_jwt_auth_backend_role.ecs_agent.role_name
 }
 
 output "vault_policy_name" {
