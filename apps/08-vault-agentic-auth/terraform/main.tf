@@ -12,6 +12,16 @@ resource "random_password" "postgres_vault_role_suffix" {
   upper   = false
 }
 
+resource "random_password" "postgres_admin" {
+  length           = 32
+  special          = true
+  override_special = "!#$%&*-_=+?"
+  min_upper        = 2
+  min_lower        = 2
+  min_numeric      = 2
+  min_special      = 2
+}
+
 # ── Networking ────────────────────────────────────────────────────────────────
 
 resource "aws_vpc" "main" {
@@ -280,7 +290,7 @@ resource "aws_secretsmanager_secret" "postgres_password" {
 
 resource "aws_secretsmanager_secret_version" "postgres_password" {
   secret_id     = aws_secretsmanager_secret.postgres_password.id
-  secret_string = var.postgres_admin_password
+  secret_string = random_password.postgres_admin.result
 }
 
 # ── CloudWatch Log Group ──────────────────────────────────────────────────────
@@ -440,7 +450,7 @@ resource "vault_database_secret_backend_connection" "postgres" {
   postgresql {
     # sslmode=disable: the sidecar listens on localhost inside the ECS task,
     # no TLS cert is configured on the container.
-    connection_url    = "postgresql://vaultadmin:${var.postgres_admin_password}@localhost:${local.postgres_port}/${local.postgres_db}?sslmode=disable"
+    connection_url    = "postgresql://vaultadmin:${random_password.postgres_admin.result}@localhost:${local.postgres_port}/${local.postgres_db}?sslmode=disable"
     username_template = "v-agent-{{random 8}}"
   }
 }

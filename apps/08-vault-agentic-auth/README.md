@@ -69,17 +69,14 @@ This app demonstrates Vault Enterprise's **Agentic IAM / Agent Registry** capabi
 
 ### 1. Configure Workspace Variables in HCP Terraform
 
-Set the following in the `demo-app-08` workspace. Mark `watsonx_api_key` and `postgres_admin_password` as **sensitive**:
+Set the following in the `demo-app-08` workspace. No secrets required — the Postgres password is generated automatically by Terraform and stored in AWS Secrets Manager:
 
 ```hcl
-project_name            = "demo"
-environment             = "dev"
-aws_region              = "us-east-1"
-vault_address           = "https://vault.example.com"
-vault_namespace         = "admin"
-watsonx_project_id      = "your-project-id"
-watsonx_api_key         = "..."   # sensitive
-postgres_admin_password = "..."   # sensitive
+project_name    = "demo"
+environment     = "dev"
+aws_region      = "us-east-1"
+vault_address   = "https://vault.example.com"
+vault_namespace = "admin"
 ```
 
 ### 2. Apply the Terraform Configuration
@@ -178,16 +175,13 @@ aws ecs execute-command \
 |---|---|---|---|---|
 | `project_name` | Naming prefix for all resources | `string` | — | yes |
 | `vault_address` | Vault cluster URL | `string` | — | yes |
-| `watsonx_api_key` | watsonx.ai API key (sensitive) | `string` | — | yes |
-| `watsonx_project_id` | watsonx.ai project ID | `string` | — | yes |
-| `postgres_admin_password` | Postgres admin password for Vault DB engine (sensitive) | `string` | — | yes |
 | `vault_namespace` | Vault namespace (`""` for root, `"admin"` for HCP) | `string` | `""` | no |
 | `aws_region` | AWS region | `string` | `"us-east-1"` | no |
 | `environment` | Deployment environment | `string` | `"dev"` | no |
 | `vpc_cidr` | VPC CIDR block | `string` | `"10.80.0.0/16"` | no |
 | `public_subnet_cidrs` | Public subnet CIDRs | `list(string)` | `["10.80.1.0/24", "10.80.2.0/24"]` | no |
 | `private_subnet_cidrs` | Private subnet CIDRs | `list(string)` | `["10.80.10.0/24", "10.80.11.0/24"]` | no |
-| `agent_prompt` | Prompt sent to watsonx.ai | `string` | *(zero-trust summary)* | no |
+| `agent_prompt` | Default prompt sent to Bedrock (Claude) | `string` | *(zero-trust summary)* | no |
 | `db_creds_ttl` | Dynamic DB credential TTL | `string` | `"1h"` | no |
 | `vault_token_ttl` | Vault token TTL for the agent | `string` | `"1h"` | no |
 

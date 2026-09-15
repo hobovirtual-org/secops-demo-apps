@@ -55,12 +55,6 @@ variable "agent_prompt" {
   default     = "Summarize the zero-trust security principles in 3 bullet points."
 }
 
-variable "postgres_admin_password" {
-  description = "Initial Postgres superuser password used by the Vault Database engine to manage dynamic credentials. Stored sensitive."
-  type        = string
-  sensitive   = true
-}
-
 variable "db_creds_ttl" {
   description = "Default TTL (in seconds) for Vault-issued dynamic Postgres credentials."
   type        = number
