@@ -49,23 +49,6 @@ variable "private_subnet_cidrs" {
   default     = ["10.80.10.0/24", "10.80.11.0/24"]
 }
 
-variable "watsonx_api_key" {
-  description = "watsonx.ai API key seeded into Vault KV-v2. Stored as a Vault secret — never written to state as plaintext."
-  type        = string
-  sensitive   = true
-}
-
-variable "watsonx_project_id" {
-  description = "watsonx.ai project ID passed to the ECS task as an environment variable."
-  type        = string
-}
-
-variable "watsonx_api_url" {
-  description = "watsonx.ai text generation API endpoint."
-  type        = string
-  default     = "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29"
-}
-
 variable "agent_prompt" {
   description = "Default prompt sent to watsonx.ai by the agent."
   type        = string

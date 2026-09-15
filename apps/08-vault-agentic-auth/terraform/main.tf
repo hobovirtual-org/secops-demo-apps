@@ -134,15 +134,6 @@ resource "aws_security_group" "agent_task" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # watsonx.ai HTTPS
-  egress {
-    description = "watsonx HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   # Postgres sidecar (same task, localhost)
   egress {
     description = "Postgres sidecar"
@@ -196,9 +187,29 @@ resource "aws_iam_role" "ecs_task_role" {
   }
 }
 
-# The task role itself needs no AWS API permissions — the JWT identity token
-# is obtained from the ECS metadata endpoint, which requires no IAM call.
-# All secrets come from Vault after JWT authentication.
+# The task role needs permission to call AWS Bedrock — all other secrets come
+# from Vault after JWT authentication. The ECS metadata endpoint JWT requires
+# no IAM call.
+
+data "aws_iam_policy_document" "bedrock_invoke" {
+  statement {
+    sid    = "BedrockInvoke"
+    effect = "Allow"
+    actions = [
+      "bedrock:InvokeModel",
+      "bedrock:InvokeModelWithResponseStream",
+    ]
+    resources = [
+      "arn:aws:bedrock:${var.aws_region}::foundation-model/${local.bedrock_model_id}",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "bedrock_invoke" {
+  name   = "bedrock-invoke"
+  role   = aws_iam_role.ecs_task_role.id
+  policy = data.aws_iam_policy_document.bedrock_invoke.json
+}
 
 # ── IAM — ECS Task Execution Role (used by ECS control plane) ────────────────
 
@@ -302,10 +313,9 @@ resource "aws_ecs_task_definition" "agent" {
         { name = "VAULT_ADDR", value = var.vault_address },
         { name = "VAULT_NAMESPACE", value = var.vault_namespace },
         { name = "VAULT_JWT_ROLE", value = local.vault_jwt_role },
-        { name = "WATSONX_KV_PATH", value = "${local.vault_kv_mount}/data/${local.vault_kv_agent_path}" },
         { name = "DB_VAULT_ROLE", value = local.vault_db_role },
-        { name = "WATSONX_API_URL", value = var.watsonx_api_url },
-        { name = "WATSONX_PROJECT_ID", value = var.watsonx_project_id },
+        { name = "BEDROCK_MODEL_ID", value = local.bedrock_model_id },
+        { name = "AWS_DEFAULT_REGION", value = var.aws_region },
         { name = "AGENT_PROMPT", value = var.agent_prompt },
         { name = "AGENT_NAME", value = local.agent_entity_name },
         { name = "POSTGRES_HOST", value = "localhost" },
@@ -384,35 +394,6 @@ resource "aws_ecs_service" "agent" {
 # Vault Resources
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── KV-v2 Mount ───────────────────────────────────────────────────────────────
-
-resource "vault_mount" "kv" {
-  path        = local.vault_kv_mount
-  type        = "kv"
-  options     = { version = "2" }
-  description = "KV-v2 mount for agent secrets (app-08)"
-}
-
-resource "vault_kv_secret_v2" "watsonx" {
-  mount               = vault_mount.kv.path
-  name                = local.vault_kv_agent_path
-  cas                 = 0
-  delete_all_versions = true
-
-  data_json = jsonencode({
-    api_key = var.watsonx_api_key
-  })
-
-  # Mark the secret as sensitive in Vault metadata
-  custom_metadata {
-    data = {
-      app         = "app-08"
-      secret_type = "api_key"
-      managed_by  = "terraform"
-    }
-  }
-}
-
 # ── Database Secrets Engine ───────────────────────────────────────────────────
 
 resource "vault_mount" "database" {
@@ -456,12 +437,8 @@ resource "vault_policy" "ai_agent" {
   name = local.vault_policy_name
 
   policy = <<-EOT
-    # Read watsonx API key from KV-v2
-    path "${local.vault_kv_mount}/data/${local.vault_kv_agent_path}" {
-      capabilities = ["read"]
-    }
-
     # Generate dynamic Postgres credentials
+    # (Bedrock access is via IAM role — no Vault secret needed)
     path "${local.vault_db_mount}/creds/${local.vault_db_role}" {
       capabilities = ["read"]
     }

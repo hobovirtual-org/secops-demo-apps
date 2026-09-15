@@ -2,7 +2,8 @@
 tools.py — Agent tool functions.
 
 Two callable tools:
-  - watsonx_query(prompt)    → calls watsonx.ai Inference API, returns text response
+  - bedrock_query(prompt)    → calls AWS Bedrock (Claude), returns text response
+                               No API key required — uses the ECS task IAM role.
   - postgres_write(record)   → writes a structured audit record to the Postgres table
 
 Both tools receive credentials at call time; nothing is stored at module level.
@@ -13,65 +14,67 @@ import logging
 import os
 from datetime import datetime, timezone
 
+import boto3
 import psycopg2
-import requests
 
 logger = logging.getLogger(__name__)
 
-_WATSONX_API_URL = os.environ.get(
-    "WATSONX_API_URL",
-    "https://us-south.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29",
+_BEDROCK_MODEL_ID = os.environ.get(
+    "BEDROCK_MODEL_ID",
+    "anthropic.claude-3-haiku-20240307-v1:0",
 )
-_WATSONX_PROJECT_ID = os.environ.get("WATSONX_PROJECT_ID", "")
+_BEDROCK_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 _POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
 _POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
 _POSTGRES_DB = os.environ.get("POSTGRES_DB", "agentdb")
 
-_session = requests.Session()
-_session.verify = True  # TLS verification always enabled
 
+def bedrock_query(prompt: str) -> str:
+    """Call AWS Bedrock (Claude) and return the generated text.
 
-def watsonx_query(prompt: str, api_key: str) -> str:
-    """Call the watsonx.ai text generation API and return the generated text.
+    Authentication is via the ECS task IAM role — no API key required.
+    This is the key Vault story complement: Bedrock uses IAM (zero secrets),
+    Postgres uses Vault dynamic credentials (zero static passwords).
 
     Args:
-        prompt:  The text prompt to send to the model.
-        api_key: Short-lived watsonx API key retrieved from Vault KV-v2.
+        prompt: The text prompt to send to the model.
 
     Returns:
         Generated text string from the model.
     """
     if not prompt or not isinstance(prompt, str):
         raise ValueError("prompt must be a non-empty string")
-    if not api_key:
-        raise ValueError("api_key must not be empty")
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-    payload = {
-        "model_id": "ibm/granite-13b-chat-v2",
-        "input": prompt,
-        "parameters": {
-            "decoding_method": "greedy",
-            "max_new_tokens": 300,
-            "min_new_tokens": 10,
-        },
-        "project_id": _WATSONX_PROJECT_ID,
-    }
-    resp = _session.post(_WATSONX_API_URL, json=payload, headers=headers, timeout=30)
-    resp.raise_for_status()
-    body = resp.json()
+    client = boto3.client("bedrock-runtime", region_name=_BEDROCK_REGION)
+
+    body = json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 300,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+    })
+
+    resp = client.invoke_model(
+        modelId=_BEDROCK_MODEL_ID,
+        contentType="application/json",
+        accept="application/json",
+        body=body,
+    )
+
+    response_body = json.loads(resp["body"].read())
 
     # Validate response structure before accessing nested keys
-    results = body.get("results")
-    if not isinstance(results, list) or not results:
-        raise RuntimeError(f"Unexpected watsonx response structure: {list(body.keys())}")
-    generated_text: str = results[0].get("generated_text", "")
+    content = response_body.get("content")
+    if not isinstance(content, list) or not content:
+        raise RuntimeError(
+            f"Unexpected Bedrock response structure: {list(response_body.keys())}"
+        )
+    generated_text: str = content[0].get("text", "")
     logger.info(
-        "watsonx.ai response received — tokens_generated=%s",
-        results[0].get("generated_token_count"),
+        "Bedrock response received — model=%s stop_reason=%s",
+        _BEDROCK_MODEL_ID,
+        response_body.get("stop_reason"),
     )
     return generated_text
 
@@ -121,7 +124,7 @@ def postgres_write(record: dict, db_username: str, db_password: str) -> None:
                     """,
                     (
                         datetime.now(tz=timezone.utc),
-                        record.get("agent_name", "app-08-watsonx-agent"),
+                        record.get("agent_name", "app-08-bedrock-agent"),
                         record.get("event_type", "inference"),
                         json.dumps(record),
                     ),

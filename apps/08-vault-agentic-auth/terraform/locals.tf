@@ -13,15 +13,16 @@ locals {
   vault_jwt_path = "auth/jwt"
   vault_jwt_role = "ai-agent-role"
 
-  # Vault secret paths
-  vault_kv_mount      = "secret"
-  vault_kv_agent_path = "agents/app-08/watsonx"
-  vault_db_mount      = "database"
-  vault_db_role       = "agent-postgres-role"
-  vault_policy_name   = "ai-agent-policy"
+  # Vault secret paths — KV mount removed (Bedrock uses IAM, no API key in Vault)
+  vault_db_mount    = "database"
+  vault_db_role     = "agent-postgres-role"
+  vault_policy_name = "ai-agent-policy"
 
   # Agent Registry identity entity metadata
-  agent_entity_name = "app-08-watsonx-agent"
+  agent_entity_name = "app-08-bedrock-agent"
+
+  # Bedrock model — Claude 3 Haiku (fast, cost-effective for demo)
+  bedrock_model_id = "anthropic.claude-3-haiku-20240307-v1:0"
 
   # Postgres container config (runs as a sidecar on ECS — no RDS cost)
   postgres_db   = "agentdb"
