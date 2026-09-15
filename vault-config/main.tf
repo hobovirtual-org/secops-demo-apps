@@ -433,6 +433,93 @@ resource "vault_policy" "demo_app_07" {
   POLICY
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# App 08 — vault-agentic-auth (ECS Fargate)
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "vault_policy" "demo_app_08" {
+  name = "demo-app-08-provisioner"
+
+  policy = <<-POLICY
+    path "sys/auth" {
+      capabilities = ["read", "sudo"]
+    }
+    path "sys/auth/*" {
+      capabilities = ["create", "read", "update", "delete", "sudo"]
+    }
+    path "sys/mounts" {
+      capabilities = ["read"]
+    }
+    path "sys/mounts/auth/*" {
+      capabilities = ["read", "sudo"]
+    }
+
+    # JWT auth method — agent runtime authentication
+    path "auth/jwt/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+
+    # KV-v2 secrets engine — agent API key storage
+    path "sys/mounts/secret" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+    path "sys/mounts/secret/*" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+    path "secret/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+
+    # Database secrets engine — dynamic Postgres credentials
+    path "sys/mounts/database" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+    path "sys/mounts/database/*" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+    path "database/*" {
+      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    }
+
+    # Identity — Agent Registry entity and alias management
+    path "identity/entity" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+    path "identity/entity/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+    path "identity/entity-alias" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+    path "identity/entity-alias/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+
+    # Policy management
+    path "sys/policies/acl/ai-agent-policy" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+  POLICY
+}
+
+resource "vault_jwt_auth_backend_role" "demo_app_08" {
+  backend        = data.vault_auth_backend.jwt.path
+  role_name      = "demo-app-08"
+  token_policies = [vault_policy.demo_app_08.name]
+  token_ttl      = 900 # 15 minutes — one run window
+  token_max_ttl  = 900
+
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
+
+  bound_claims = {
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-08:run_phase:*"
+  }
+
+  user_claim = "terraform_full_workspace"
+  role_type  = "jwt"
+}
+
 resource "vault_jwt_auth_backend_role" "demo_app_07" {
   backend        = data.vault_auth_backend.jwt.path
   role_name      = "demo-app-07"
