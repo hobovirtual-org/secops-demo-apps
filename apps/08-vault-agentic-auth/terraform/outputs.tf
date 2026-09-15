@@ -53,6 +53,11 @@ output "ecs_task_role_arn" {
   value       = aws_iam_role.ecs_task_role.arn
 }
 
+output "postgres_secret_arn" {
+  description = "ARN of the Secrets Manager secret holding the Postgres admin password."
+  value       = aws_secretsmanager_secret.postgres_password.arn
+}
+
 output "docker_push_commands" {
   description = "Commands to build and push the agent container image to ECR."
   value       = <<-EOT

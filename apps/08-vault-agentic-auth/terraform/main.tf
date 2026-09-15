@@ -240,7 +240,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Allow the execution role to pull from ECR
+# Allow the execution role to pull from ECR and read the Postgres password secret
 data "aws_iam_policy_document" "ecr_pull" {
   statement {
     sid    = "ECRPull"
@@ -253,12 +253,34 @@ data "aws_iam_policy_document" "ecr_pull" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    sid     = "ReadPostgresSecret"
+    effect  = "Allow"
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.postgres_password.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "ecr_pull" {
-  name   = "ecr-pull"
+  name   = "ecr-pull-and-secrets"
   role   = aws_iam_role.ecs_execution_role.id
   policy = data.aws_iam_policy_document.ecr_pull.json
+}
+
+# ── Secrets Manager — Postgres admin password ─────────────────────────────────
+# Stored here so it is never passed as a plaintext env var in the task definition.
+# The ECS execution role reads it at task launch; the agent container never sees it.
+
+resource "aws_secretsmanager_secret" "postgres_password" {
+  name                    = "${local.name_prefix}/postgres-admin-password"
+  description             = "Postgres admin password for the Vault Database engine sidecar (app-08)"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "postgres_password" {
+  secret_id     = aws_secretsmanager_secret.postgres_password.id
+  secret_string = var.postgres_admin_password
 }
 
 # ── CloudWatch Log Group ──────────────────────────────────────────────────────
@@ -337,17 +359,22 @@ resource "aws_ecs_task_definition" "agent" {
     },
     {
       name      = "postgres"
-      image     = "docker.io/library/postgres:16-alpine"
+      # UBI9-based Postgres from the Red Hat registry (security policy: no docker.io images)
+      image     = "registry.redhat.io/rhel9/postgresql-16:latest"
       essential = false
 
       environment = [
-        { name = "POSTGRES_DB", value = local.postgres_db },
-        { name = "POSTGRES_USER", value = "vaultadmin" },
-        # The admin password is passed at task launch time via the execution role secret
-        # and is used only by the Vault Database engine — not by the agent directly.
-        { name = "POSTGRES_PASSWORD", value = var.postgres_admin_password },
-        # Allow SSL connections
-        { name = "POSTGRES_HOST_AUTH_METHOD", value = "scram-sha-256" },
+        { name = "POSTGRESQL_DATABASE", value = local.postgres_db },
+        { name = "POSTGRESQL_USER", value = "vaultadmin" },
+        { name = "POSTGRESQL_ADMIN_PASSWORD", value = "from-secret" },
+      ]
+
+      # Password injected securely via ECS secrets — never a plaintext env var
+      secrets = [
+        {
+          name      = "POSTGRESQL_PASSWORD"
+          valueFrom = aws_secretsmanager_secret.postgres_password.arn
+        }
       ]
 
       portMappings = [

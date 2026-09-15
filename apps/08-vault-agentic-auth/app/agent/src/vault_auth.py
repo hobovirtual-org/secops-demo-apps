@@ -99,7 +99,7 @@ def get_dynamic_db_creds(token: str, role: str) -> dict:
     `role` is the Vault database role name, e.g. ``agent-postgres-role``.
     Returns ``{"username": ..., "password": ..., "lease_duration": ...}``.
     """
-    url = f"{_VAULT_ADDR}/v1/database/creds/{role}"
+    url = f"{_VAULT_ADDR}/v1/app08/database/creds/{role}"
     resp = _session.get(url, headers=_base_headers(token), timeout=10)
     resp.raise_for_status()
     body = resp.json()
