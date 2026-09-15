@@ -403,14 +403,17 @@ resource "vault_mount" "database" {
 }
 
 resource "vault_database_secret_backend_connection" "postgres" {
-  backend       = vault_mount.database.path
-  name          = "agent-postgres"
-  allowed_roles = [local.vault_db_role]
+  backend            = vault_mount.database.path
+  name               = "agent-postgres"
+  allowed_roles      = [local.vault_db_role]
+  # Postgres runs as an ECS sidecar — it doesn't exist at terraform apply time,
+  # only at task runtime. Skip the connection test during provisioning.
+  verify_connection  = false
 
   postgresql {
-    connection_url = "postgresql://vaultadmin:${var.postgres_admin_password}@localhost:${local.postgres_port}/${local.postgres_db}?sslmode=require"
-    # Vault rotates this password after the first connection to prevent
-    # static admin credential exposure.
+    # sslmode=disable: the sidecar listens on localhost inside the ECS task,
+    # no TLS cert is configured on the container.
+    connection_url    = "postgresql://vaultadmin:${var.postgres_admin_password}@localhost:${local.postgres_port}/${local.postgres_db}?sslmode=disable"
     username_template = "v-agent-{{random 8}}"
   }
 }
