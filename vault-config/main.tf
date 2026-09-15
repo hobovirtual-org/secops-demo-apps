@@ -458,6 +458,11 @@ resource "vault_policy" "demo_app_08" {
     path "auth/jwt/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
+    # Vault provider v5 constructs auth/auth/jwt/config when namespace is
+    # set via environment — allow both path forms to be safe
+    path "auth/auth/jwt/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
 
     # Database secrets engine — dynamic Postgres credentials (app-scoped mount)
     path "sys/mounts/app08/database" {
