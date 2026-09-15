@@ -1,528 +1,91 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# App 08 — Vault Agentic Auth
-# Self-contained: creates its own VPC, ECS cluster, Vault config, and
-# Agent Registry entry. No dependencies on any other demo app.
+# App 08 — Vault Agentic Auth (Vault-only config)
+#
+# Story: a GitHub Actions-hosted AI agent authenticates to Vault using a
+# short-lived GitHub OIDC JWT — no static secrets anywhere. Security teams
+# watch the Vault UI to see the agent appear in the Agent Registry, audit
+# logs of every secret it accessed, and leases that expire automatically.
+#
+# Infrastructure footprint: Vault only. No AWS, no containers, no databases.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Random values ─────────────────────────────────────────────────────────────
+# ── JWT auth role — GitHub Actions agent ─────────────────────────────────────
+# The shared auth/jwt mount (managed by vault-config) already trusts
+# https://token.actions.githubusercontent.com as an issuer.
+# This role binds the agent JWT to the ai-agent-policy.
 
-resource "random_password" "postgres_vault_role_suffix" {
-  length  = 8
-  special = false
-  upper   = false
-}
+resource "vault_jwt_auth_backend_role" "ai_agent" {
+  backend   = "jwt-github"
+  role_name = local.vault_jwt_role
+  role_type = "jwt"
 
-resource "random_password" "postgres_admin" {
-  length           = 32
-  special          = true
-  override_special = "!#$%&*-_=+?"
-  min_upper        = 2
-  min_lower        = 2
-  min_numeric      = 2
-  min_special      = 2
-}
+  # GitHub Actions OIDC audience
+  bound_audiences = ["${var.vault_address}"]
 
-# ── Networking ────────────────────────────────────────────────────────────────
-
-resource "aws_vpc" "main" {
-  cidr_block           = var.vpc_cidr
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-
-  tags = {
-    Name = "${local.name_prefix}-vpc"
-  }
-}
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "${local.name_prefix}-igw"
-  }
-}
-
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-resource "aws_subnet" "public" {
-  count             = length(var.public_subnet_cidrs)
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.public_subnet_cidrs[count.index]
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-
-  map_public_ip_on_launch = false
-
-  tags = {
-    Name = "${local.name_prefix}-public-${count.index + 1}"
-  }
-}
-
-resource "aws_subnet" "private" {
-  count             = length(var.private_subnet_cidrs)
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidrs[count.index]
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-
-  tags = {
-    Name = "${local.name_prefix}-private-${count.index + 1}"
-  }
-}
-
-resource "aws_eip" "nat" {
-  domain = "vpc"
-
-  tags = {
-    Name = "${local.name_prefix}-nat-eip"
-  }
-}
-
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
-
-  tags = {
-    Name = "${local.name_prefix}-nat"
+  # Scope to this repo's main branch only — no forks, no PRs
+  bound_claims_type = "string"
+  bound_claims = {
+    sub = "repo:${var.github_repo}:ref:refs/heads/main"
   }
 
-  depends_on = [aws_internet_gateway.main]
+  user_claim = "sub"
+
+  token_policies = [vault_policy.ai_agent.name]
+  token_ttl      = 300  # 5 minutes — one agent run
+  token_max_ttl  = 300
+  token_type     = "service"
 }
 
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-
-  tags = {
-    Name = "${local.name_prefix}-rt-public"
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  count          = length(aws_subnet.public)
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
-  }
-
-  tags = {
-    Name = "${local.name_prefix}-rt-private"
-  }
-}
-
-resource "aws_route_table_association" "private" {
-  count          = length(aws_subnet.private)
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
-}
-
-# ── Security Groups ───────────────────────────────────────────────────────────
-
-# Agent task: egress to Vault (HTTPS) and Postgres sidecar only
-resource "aws_security_group" "agent_task" {
-  name        = "${local.name_prefix}-agent-task-sg"
-  description = "ECS Fargate agent task - egress to Vault and Postgres sidecar"
-  vpc_id      = aws_vpc.main.id
-
-  # Vault HTTPS
-  egress {
-    description = "Vault HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Postgres sidecar (same task, localhost)
-  egress {
-    description = "Postgres sidecar"
-    from_port   = local.postgres_port
-    to_port     = local.postgres_port
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-  }
-
-  tags = {
-    Name = "${local.name_prefix}-agent-task-sg"
-  }
-}
-
-# ── ECR Repository ────────────────────────────────────────────────────────────
-
-resource "aws_ecr_repository" "agent" {
-  name                 = "${local.name_prefix}-agent"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  encryption_configuration {
-    encryption_type = "AES256"
-  }
-}
-
-# ── IAM — ECS Task Role (used by the agent container) ─────────────────────────
-
-data "aws_iam_policy_document" "ecs_task_assume_role" {
-  statement {
-    sid     = "ECSTasksAssumeRole"
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "ecs_task_role" {
-  name               = "${local.name_prefix}-task-role"
-  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
-
-  tags = {
-    Name = "${local.name_prefix}-task-role"
-  }
-}
-
-# The task role needs permission to call AWS Bedrock — all other secrets come
-# from Vault after JWT authentication. The ECS metadata endpoint JWT requires
-# no IAM call.
-
-data "aws_iam_policy_document" "bedrock_invoke" {
-  statement {
-    sid    = "BedrockInvoke"
-    effect = "Allow"
-    actions = [
-      "bedrock:InvokeModel",
-      "bedrock:InvokeModelWithResponseStream",
-    ]
-    resources = [
-      "arn:aws:bedrock:${var.aws_region}::foundation-model/${local.bedrock_model_id}",
-    ]
-  }
-}
-
-resource "aws_iam_role_policy" "bedrock_invoke" {
-  name   = "bedrock-invoke"
-  role   = aws_iam_role.ecs_task_role.id
-  policy = data.aws_iam_policy_document.bedrock_invoke.json
-}
-
-# ── IAM — ECS Task Execution Role (used by ECS control plane) ────────────────
-
-data "aws_iam_policy_document" "ecs_execution_assume_role" {
-  statement {
-    sid     = "ECSExecutionAssumeRole"
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["ecs-tasks.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "ecs_execution_role" {
-  name               = "${local.name_prefix}-execution-role"
-  assume_role_policy = data.aws_iam_policy_document.ecs_execution_assume_role.json
-
-  tags = {
-    Name = "${local.name_prefix}-execution-role"
-  }
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_execution_managed" {
-  role       = aws_iam_role.ecs_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-# Allow the execution role to pull from ECR and read the Postgres password secret
-data "aws_iam_policy_document" "ecr_pull" {
-  statement {
-    sid    = "ECRPull"
-    effect = "Allow"
-    actions = [
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:BatchGetImage",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:GetAuthorizationToken",
-    ]
-    resources = ["*"]
-  }
-
-  statement {
-    sid     = "ReadPostgresSecret"
-    effect  = "Allow"
-    actions = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.postgres_password.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "ecr_pull" {
-  name   = "ecr-pull-and-secrets"
-  role   = aws_iam_role.ecs_execution_role.id
-  policy = data.aws_iam_policy_document.ecr_pull.json
-}
-
-# ── Secrets Manager — Postgres admin password ─────────────────────────────────
-# Stored here so it is never passed as a plaintext env var in the task definition.
-# The ECS execution role reads it at task launch; the agent container never sees it.
-
-resource "aws_secretsmanager_secret" "postgres_password" {
-  name                    = "${local.name_prefix}/postgres-admin-password"
-  description             = "Postgres admin password for the Vault Database engine sidecar (app-08)"
-  recovery_window_in_days = 0
-}
-
-resource "aws_secretsmanager_secret_version" "postgres_password" {
-  secret_id     = aws_secretsmanager_secret.postgres_password.id
-  secret_string = random_password.postgres_admin.result
-}
-
-# ── CloudWatch Log Group ──────────────────────────────────────────────────────
-
-resource "aws_cloudwatch_log_group" "agent" {
-  name              = "/ecs/${local.name_prefix}/agent"
-  retention_in_days = 30
-}
-
-# ── ECS Cluster ───────────────────────────────────────────────────────────────
-
-resource "aws_ecs_cluster" "main" {
-  name = "${local.name_prefix}-cluster"
-
-  setting {
-    name  = "containerInsights"
-    value = "enabled"
-  }
-}
-
-resource "aws_ecs_cluster_capacity_providers" "main" {
-  cluster_name       = aws_ecs_cluster.main.name
-  capacity_providers = ["FARGATE"]
-
-  default_capacity_provider_strategy {
-    capacity_provider = "FARGATE"
-    weight            = 1
-  }
-}
-
-# ── ECS Task Definition ───────────────────────────────────────────────────────
-# Two containers:
-#   1. agent      — Python agent (reads from Vault, calls watsonx, writes audit)
-#   2. postgres   — Lightweight Postgres sidecar (no RDS cost for the demo)
-
-resource "aws_ecs_task_definition" "agent" {
-  family                   = "${local.name_prefix}-agent"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = "512"
-  memory                   = "1024"
-  task_role_arn            = aws_iam_role.ecs_task_role.arn
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
-
-  container_definitions = jsonencode([
-    {
-      name      = "agent"
-      image     = local.agent_image
-      essential = true
-
-      environment = [
-        { name = "VAULT_ADDR", value = var.vault_address },
-        { name = "VAULT_NAMESPACE", value = var.vault_namespace },
-        { name = "VAULT_JWT_ROLE", value = local.vault_jwt_role },
-        { name = "DB_VAULT_ROLE", value = local.vault_db_role },
-        { name = "BEDROCK_MODEL_ID", value = local.bedrock_model_id },
-        { name = "AWS_DEFAULT_REGION", value = var.aws_region },
-        { name = "AGENT_PROMPT", value = var.agent_prompt },
-        { name = "AGENT_NAME", value = local.agent_entity_name },
-        { name = "POSTGRES_HOST", value = "localhost" },
-        { name = "POSTGRES_PORT", value = tostring(local.postgres_port) },
-        { name = "POSTGRES_DB", value = local.postgres_db },
-      ]
-
-      # No secrets in the task definition — all credentials come from Vault
-      secrets = []
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.agent.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "agent"
-        }
-      }
-    },
-    {
-      name      = "postgres"
-      # UBI9-based Postgres from the Red Hat registry (security policy: no docker.io images)
-      image     = "registry.redhat.io/rhel9/postgresql-16:latest"
-      essential = false
-
-      environment = [
-        { name = "POSTGRESQL_DATABASE", value = local.postgres_db },
-        { name = "POSTGRESQL_USER", value = "vaultadmin" },
-        { name = "POSTGRESQL_ADMIN_PASSWORD", value = "from-secret" },
-      ]
-
-      # Password injected securely via ECS secrets — never a plaintext env var
-      secrets = [
-        {
-          name      = "POSTGRESQL_PASSWORD"
-          valueFrom = aws_secretsmanager_secret.postgres_password.arn
-        }
-      ]
-
-      portMappings = [
-        {
-          containerPort = local.postgres_port
-          protocol      = "tcp"
-        }
-      ]
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.agent.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "postgres"
-        }
-      }
-    }
-  ])
-}
-
-# ── ECS Service ───────────────────────────────────────────────────────────────
-# Runs once (desired_count = 1) — the agent is a one-shot pipeline, not a server.
-
-resource "aws_ecs_service" "agent" {
-  name            = "${local.name_prefix}-agent-svc"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.agent.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets          = aws_subnet.private[*].id
-    security_groups  = [aws_security_group.agent_task.id]
-    assign_public_ip = false
-  }
-
-  # Restart on failure
-  deployment_minimum_healthy_percent = 0
-  deployment_maximum_percent         = 100
-}
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Vault Resources
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── Database Secrets Engine ───────────────────────────────────────────────────
-
-resource "vault_mount" "database" {
-  path        = local.vault_db_mount
-  type        = "database"
-  description = "Database secrets engine for dynamic Postgres credentials (app-08)"
-}
-
-resource "vault_database_secret_backend_connection" "postgres" {
-  backend            = vault_mount.database.path
-  name               = "agent-postgres"
-  allowed_roles      = [local.vault_db_role]
-  # Postgres runs as an ECS sidecar — it doesn't exist at terraform apply time,
-  # only at task runtime. Skip the connection test during provisioning.
-  verify_connection  = false
-
-  postgresql {
-    # sslmode=disable: the sidecar listens on localhost inside the ECS task,
-    # no TLS cert is configured on the container.
-    connection_url    = "postgresql://vaultadmin:${random_password.postgres_admin.result}@localhost:${local.postgres_port}/${local.postgres_db}?sslmode=disable"
-    username_template = "v-agent-{{random 8}}"
-  }
-}
-
-resource "vault_database_secret_backend_role" "agent_postgres" {
-  backend     = vault_mount.database.path
-  name        = local.vault_db_role
-  db_name     = vault_database_secret_backend_connection.postgres.name
-  default_ttl = var.db_creds_ttl
-  max_ttl     = var.db_creds_max_ttl
-  creation_statements = [
-    "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
-    "GRANT SELECT, INSERT ON agent_audit TO \"{{name}}\";",
-  ]
-  revocation_statements = [
-    "REVOKE ALL ON agent_audit FROM \"{{name}}\";",
-    "DROP ROLE IF EXISTS \"{{name}}\";",
-  ]
-}
-
-# ── Vault Policy ──────────────────────────────────────────────────────────────
+# ── Agent policy ──────────────────────────────────────────────────────────────
+# Minimal: read the demo KV secret and read its own identity.
 
 resource "vault_policy" "ai_agent" {
   name = local.vault_policy_name
 
   policy = <<-EOT
-    # Generate dynamic Postgres credentials
-    # (Bedrock access is via IAM role — no Vault secret needed)
-    path "${local.vault_db_mount}/creds/${local.vault_db_role}" {
+    # Read the agent's demo config secret
+    path "${local.vault_kv_mount}/data/${local.vault_kv_path}" {
       capabilities = ["read"]
     }
 
-    # Allow token self-renewal
-    path "auth/token/renew-self" {
-      capabilities = ["update"]
+    # Read own entity (surfaces in Agent Registry UI)
+    path "identity/entity/id/{{identity.entity.id}}" {
+      capabilities = ["read"]
     }
 
-    # Allow token self-lookup
+    # Look up own token info (used in audit log demo)
     path "auth/token/lookup-self" {
       capabilities = ["read"]
     }
   EOT
 }
 
-# ── JWT Auth Method ───────────────────────────────────────────────────────────
-# auth/jwt is a shared mount managed centrally by vault-config/main.tf.
-# This workspace only creates the role within it — no data source needed.
+# ── KV-v2 demo secret ─────────────────────────────────────────────────────────
+# The agent reads this — it's what shows up in the Vault audit log.
+# Content is intentionally non-sensitive demo config.
 
-resource "vault_jwt_auth_backend_role" "ecs_agent" {
-  backend   = local.vault_jwt_path
-  role_name = local.vault_jwt_role
-  role_type = "jwt"
-
-  # Bound audience — must match the audience in the ECS task identity token
-  bound_audiences = ["vault"]
-
-  # Bind to the ECS task role ARN via the sub claim
-  bound_subject = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:assumed-role/${aws_iam_role.ecs_task_role.name}/*"
-
-  # User claim identifies the agent in Vault audit logs
-  user_claim = "sub"
-
-  token_policies = [vault_policy.ai_agent.name]
-  token_ttl      = 3600
-  token_max_ttl  = 14400
-  token_type     = "service"
+resource "vault_mount" "kv" {
+  path        = local.vault_kv_mount
+  type        = "kv"
+  options     = { version = "2" }
+  description = "KV-v2 store for app-08 agent demo secrets"
 }
 
-# ── Vault Agent Registry (Enterprise) ────────────────────────────────────────
-# The Vault Enterprise Agent Registry is surfaced through Identity entities.
-# Creating an entity with the agent_type metadata is what the Vault UI reads
-# to list and manage registered AI agents.
+resource "vault_kv_secret_v2" "agent_config" {
+  mount = vault_mount.kv.path
+  name  = local.vault_kv_path
+
+  data_json = jsonencode({
+    agent_name   = local.agent_entity_name
+    model        = "claude-3-haiku"
+    environment  = var.environment
+    demo_message = "Zero static secrets. Vault issued this at runtime."
+  })
+}
+
+# ── Agent Registry identity entity ───────────────────────────────────────────
+# This is what appears in the Vault Enterprise Agent Registry UI.
+# metadata drives the UI display: agent_type, model, status.
 
 resource "vault_identity_entity" "ai_agent" {
   name     = local.agent_entity_name
@@ -532,9 +95,20 @@ resource "vault_identity_entity" "ai_agent" {
   metadata = {
     agent_type         = "ai"
     agent_name         = local.agent_entity_name
+    model              = "claude-3-haiku"
+    auth_method        = "github_actions_oidc"
     operational_status = "active"
     app                = "app-08"
-    auth_method        = "jwt"
     managed_by         = "terraform"
   }
+}
+
+# Alias links the GitHub Actions JWT sub claim to the identity entity.
+# When the agent authenticates, Vault automatically associates its token
+# with this entity — making it visible in the Agent Registry.
+
+resource "vault_identity_entity_alias" "ai_agent_jwt" {
+  name           = "repo:${var.github_repo}:ref:refs/heads/main"
+  mount_accessor = data.vault_auth_backend.jwt_github.accessor
+  canonical_id   = vault_identity_entity.ai_agent.id
 }

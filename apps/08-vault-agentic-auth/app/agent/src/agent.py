@@ -1,16 +1,17 @@
 """
-agent.py — App-08 Vault Agentic Auth demo agent.
+agent.py — App-08: Vault Agentic Auth demo
 
-Demonstrates the full Vault Agentic IAM pipeline:
-  1. Authenticate to Vault using an ECS task identity JWT (no static secrets).
-  2. Vault validates via JWT auth method and checks the Agent Registry entity.
-  3. Generate dynamic Postgres credentials from the Vault Database secrets engine.
-  4. Call AWS Bedrock (Claude) via the ECS task IAM role — no API key anywhere.
-  5. Write a structured audit record to Postgres using the ephemeral credentials.
-  6. Credentials expire automatically — nothing is persisted.
+Story (for security team audience):
+  An AI agent running in GitHub Actions authenticates to Vault using a
+  short-lived GitHub OIDC JWT — zero static secrets, zero manual setup.
+  After auth, the agent reads a config secret. Everything it does is
+  captured in Vault's audit log and the token expires automatically.
 
-The story: Bedrock auth = IAM (zero secrets). Postgres auth = Vault dynamic
-credentials (zero static passwords). Neither path has a hardcoded secret.
+What to watch in the Vault UI while this runs:
+  1. Access → Auth Methods → jwt → Roles → ai-agent-role (bound to this repo)
+  2. Identity → Entities → app-08-github-actions-agent  (Agent Registry entry)
+  3. Audit log → login event, then a KV read — all attributed to the entity
+  4. After the script exits, the token lease disappears automatically
 """
 
 import json
@@ -18,77 +19,138 @@ import logging
 import os
 import sys
 
-from vault_auth import get_dynamic_db_creds, get_vault_token
-from tools import bedrock_query, postgres_write
+import requests
 
-# ── Logging — structured JSON, no sensitive data ─────────────────────────────
+# ── Structured logging — no sensitive data ever logged ───────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
-    format='{"ts": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "msg": %(message)s}',
+    format='{"ts": "%(asctime)s", "level": "%(levelname)s", "msg": %(message)s}',
     stream=sys.stdout,
 )
-logger = logging.getLogger("agent")
+log = logging.getLogger("agent")
 
-# ── Configuration from environment variables — no hardcoded values ───────────
+# ── Config from environment — injected by GitHub Actions, never hardcoded ────
 
-VAULT_ADDR = os.environ["VAULT_ADDR"]
-DB_VAULT_ROLE = os.environ.get("DB_VAULT_ROLE", "agent-postgres-role")
-AGENT_PROMPT = os.environ.get(
-    "AGENT_PROMPT",
-    "Summarize the zero-trust security principles in 3 bullet points.",
-)
-AGENT_NAME = os.environ.get("AGENT_NAME", "app-08-bedrock-agent")
+VAULT_ADDR      = os.environ["VAULT_ADDR"]
+VAULT_NAMESPACE = os.environ.get("VAULT_NAMESPACE", "")
+VAULT_ROLE      = os.environ.get("VAULT_ROLE", "ai-agent-role")
+VAULT_KV_PATH   = os.environ.get("VAULT_KV_PATH", "app08/kv/data/agents/app-08/config")
+# GitHub Actions injects this automatically — contains the OIDC JWT
+ACTIONS_ID_TOKEN = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+ACTIONS_ID_URL   = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
 
+_session = requests.Session()
+_session.verify = True  # TLS verification always on
+
+
+def _headers(token: str | None = None) -> dict:
+    h = {"Content-Type": "application/json"}
+    if VAULT_NAMESPACE:
+        h["X-Vault-Namespace"] = VAULT_NAMESPACE
+    if token:
+        h["X-Vault-Token"] = token
+    return h
+
+
+# ── Step 1: Fetch GitHub Actions OIDC JWT ────────────────────────────────────
+
+def get_github_jwt() -> str:
+    """Request a GitHub Actions OIDC JWT scoped to our Vault audience."""
+    if not ACTIONS_ID_TOKEN or not ACTIONS_ID_URL:
+        raise RuntimeError(
+            "GitHub Actions OIDC env vars not set. "
+            "Ensure 'id-token: write' permission is set in the workflow."
+        )
+    url = f"{ACTIONS_ID_URL}&audience={VAULT_ADDR}"
+    resp = _session.get(url, headers={"Authorization": f"Bearer {ACTIONS_ID_TOKEN}"}, timeout=10)
+    resp.raise_for_status()
+    jwt = resp.json()["value"]
+    log.info('"Fetched GitHub Actions OIDC JWT (no static credentials used)"')
+    return jwt
+
+
+# ── Step 2: Authenticate to Vault ────────────────────────────────────────────
+
+def vault_login(jwt: str) -> str:
+    """Exchange the GitHub JWT for a short-lived Vault token."""
+    resp = _session.post(
+        f"{VAULT_ADDR}/v1/auth/jwt/login",
+        json={"role": VAULT_ROLE, "jwt": jwt},
+        headers=_headers(),
+        timeout=10,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    token = body["auth"]["client_token"]
+    ttl   = body["auth"]["lease_duration"]
+    policies = body["auth"]["policies"]
+    log.info(
+        f'"Vault login successful — ttl={ttl}s, policies={policies}, '
+        f'entity={body["auth"].get("entity_id", "none")}"'
+    )
+    return token
+
+
+# ── Step 3: Read the KV secret ───────────────────────────────────────────────
+
+def read_secret(token: str) -> dict:
+    """Read the agent config secret from Vault KV-v2."""
+    resp = _session.get(
+        f"{VAULT_ADDR}/v1/{VAULT_KV_PATH}",
+        headers=_headers(token),
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()["data"]["data"]
+    log.info(f'"Read KV secret — keys={list(data.keys())}"')
+    return data
+
+
+# ── Step 4: Look up own token (shows in audit log) ───────────────────────────
+
+def lookup_self(token: str) -> dict:
+    """Read own token info — demonstrates audit trail in Vault UI."""
+    resp = _session.get(
+        f"{VAULT_ADDR}/v1/auth/token/lookup-self",
+        headers=_headers(token),
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+# ── Main pipeline ─────────────────────────────────────────────────────────────
 
 def run() -> None:
-    """Execute the agentic pipeline end-to-end."""
+    print("\n" + "═" * 60)
+    print("  App-08: Vault Agentic Auth Demo")
+    print("═" * 60)
 
-    logger.info('"Starting Vault agentic auth pipeline"')
+    print("\n[1/4] Fetching GitHub Actions OIDC JWT...")
+    jwt = get_github_jwt()
+    print("      ✓ JWT acquired — no static credentials")
 
-    # ── Step 1: Authenticate to Vault via ECS task JWT ────────────────────────
-    logger.info('"Step 1: Authenticating to Vault via JWT auth method"')
-    vault_token = get_vault_token()
-    logger.info('"Vault token acquired — zero static credentials used"')
+    print("\n[2/4] Authenticating to Vault (JWT auth method)...")
+    token = vault_login(jwt)
+    print("      ✓ Vault token issued — check Agent Registry in Vault UI")
 
-    # ── Step 2: Generate dynamic Postgres credentials ─────────────────────────
-    logger.info(
-        '"Step 2: Generating dynamic Postgres credentials from Vault Database engine (role=%s)"',
-        DB_VAULT_ROLE,
-    )
-    db_creds = get_dynamic_db_creds(vault_token, DB_VAULT_ROLE)
-    db_username = db_creds["username"]
-    db_password = db_creds["password"]
-    logger.info('"Dynamic DB creds issued — username=%s"', db_username)
+    print("\n[3/4] Reading config secret from Vault KV...")
+    secret = read_secret(token)
+    print(f"      ✓ Secret read: {json.dumps(secret, indent=8)}")
+    print("      ✓ This read is now visible in the Vault audit log")
 
-    # ── Step 3: Call AWS Bedrock via ECS task IAM role (no API key) ───────────
-    logger.info('"Step 3: Calling AWS Bedrock (Claude) via ECS task IAM role — prompt=%s"', json.dumps(AGENT_PROMPT))
-    response_text = bedrock_query(AGENT_PROMPT)
-    logger.info('"Bedrock response received"')
-    print("\n─── AWS Bedrock (Claude) Response ───────────────────────────────────")
-    print(response_text)
-    print("─────────────────────────────────────────────────────────────────────\n")
+    print("\n[4/4] Looking up token info...")
+    info = lookup_self(token)
+    print(f"      ✓ Token TTL: {info.get('ttl')}s — expires automatically, nothing persists")
 
-    # ── Step 4: Write audit record to Postgres ────────────────────────────────
-    logger.info('"Step 4: Writing audit record to Postgres"')
-    audit_record = {
-        "agent_name": AGENT_NAME,
-        "event_type": "inference",
-        "vault_auth_method": "jwt",
-        "llm_auth_method": "iam_role",
-        "db_engine": "database",
-        "prompt": AGENT_PROMPT,
-        "response_summary": response_text[:200],
-        "hardcoded_secrets": False,
-    }
-    postgres_write(audit_record, db_username, db_password)
-    logger.info('"Audit record written — pipeline complete"')
-
-    # ── Step 5: Credentials expire automatically ──────────────────────────────
-    logger.info(
-        '"Step 5: Credentials are ephemeral — DB TTL will expire automatically"'
-    )
-    logger.info('"Pipeline complete — zero secrets persist"')
+    print("\n" + "═" * 60)
+    print("  Pipeline complete.")
+    print("  What to check in Vault UI:")
+    print("  → Identity → Entities → app-08-github-actions-agent")
+    print("  → Audit log → two events: login + kv read")
+    print("  → Leases → token TTL counting down to zero")
+    print("═" * 60 + "\n")
 
 
 if __name__ == "__main__":

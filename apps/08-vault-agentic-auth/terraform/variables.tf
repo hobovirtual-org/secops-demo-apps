@@ -1,11 +1,11 @@
-variable "aws_region" {
-  description = "AWS region for all resources."
+variable "project_name" {
+  description = "Naming prefix for all Vault resources."
   type        = string
-  default     = "us-east-1"
+  default     = "demo"
 }
 
 variable "environment" {
-  description = "Deployment environment."
+  description = "Deployment environment label."
   type        = string
   default     = "dev"
 
@@ -15,55 +15,19 @@ variable "environment" {
   }
 }
 
-variable "project_name" {
-  description = "Naming prefix for all AWS and Vault resources."
-  type        = string
-}
-
 variable "vault_address" {
-  description = "Vault cluster URL (e.g. https://vault.example.com)."
+  description = "Vault cluster URL (e.g. https://vault.example.com). Also used as the JWT audience."
   type        = string
 }
 
 variable "vault_namespace" {
-  description = "Vault namespace. Empty string for self-managed Vault (root namespace). Use 'admin' for HCP Vault Dedicated."
+  description = "Vault namespace. Empty string for root. Use 'admin' for HCP Vault Dedicated."
   type        = string
   default     = ""
 }
 
-variable "vpc_cidr" {
-  description = "CIDR block for the dedicated VPC."
+variable "github_repo" {
+  description = "GitHub repo in owner/name format (e.g. hobovirtual-org/secops-demo-apps). Used to scope the JWT role trust."
   type        = string
-  default     = "10.80.0.0/16"
+  default     = "hobovirtual-org/secops-demo-apps"
 }
-
-variable "public_subnet_cidrs" {
-  description = "List of CIDR blocks for public subnets (one per AZ). Must be within vpc_cidr."
-  type        = list(string)
-  default     = ["10.80.1.0/24", "10.80.2.0/24"]
-}
-
-variable "private_subnet_cidrs" {
-  description = "List of CIDR blocks for private subnets (one per AZ). Must be within vpc_cidr."
-  type        = list(string)
-  default     = ["10.80.10.0/24", "10.80.11.0/24"]
-}
-
-variable "agent_prompt" {
-  description = "Default prompt sent to watsonx.ai by the agent."
-  type        = string
-  default     = "Summarize the zero-trust security principles in 3 bullet points."
-}
-
-variable "db_creds_ttl" {
-  description = "Default TTL (in seconds) for Vault-issued dynamic Postgres credentials."
-  type        = number
-  default     = 3600
-}
-
-variable "db_creds_max_ttl" {
-  description = "Maximum TTL (in seconds) for Vault-issued dynamic Postgres credentials."
-  type        = number
-  default     = 14400
-}
-

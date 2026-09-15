@@ -1,0 +1,35 @@
+name: app-08 — Run Vault Agent Demo
+
+on:
+  workflow_dispatch: {}   # Press the button in GitHub Actions UI to run
+
+permissions:
+  id-token: write   # required to request the GitHub OIDC JWT
+  contents: read
+
+jobs:
+  run-agent:
+    name: Authenticate to Vault and read secret
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r apps/08-vault-agentic-auth/app/agent/requirements.txt
+
+      - name: Run Vault agent pipeline
+        env:
+          VAULT_ADDR:      ${{ vars.VAULT_ADDR }}
+          VAULT_NAMESPACE: ${{ vars.VAULT_NAMESPACE }}
+          VAULT_ROLE:      "ai-agent-role"
+          VAULT_KV_PATH:   "app08/kv/data/agents/app-08/config"
+          # GitHub injects ACTIONS_ID_TOKEN_REQUEST_TOKEN and
+          # ACTIONS_ID_TOKEN_REQUEST_URL automatically when id-token: write is set
+        run: python apps/08-vault-agentic-auth/app/agent/src/agent.py

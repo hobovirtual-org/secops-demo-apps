@@ -434,45 +434,68 @@ resource "vault_policy" "demo_app_07" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# App 08 — vault-agentic-auth (ECS Fargate)
+# App 08 — vault-agentic-auth (GitHub Actions agent)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Dedicated JWT auth mount for GitHub Actions OIDC.
+# Kept separate from the HCP Terraform JWT mount so trust anchors are isolated.
+resource "vault_jwt_auth_backend" "github" {
+  path               = "jwt-github"
+  type               = "jwt"
+  description        = "JWT auth for GitHub Actions OIDC (app-08 agentic demo)"
+  oidc_discovery_url = "https://token.actions.githubusercontent.com"
+  bound_issuer       = "https://token.actions.githubusercontent.com"
+}
+
+# HCP Terraform provisioner role on the GitHub JWT mount — lets the
+# demo-app-08 workspace create resources inside this mount.
+resource "vault_jwt_auth_backend_role" "demo_app_08" {
+  backend        = vault_jwt_auth_backend.github.path
+  role_name      = "demo-app-08"
+  token_policies = [vault_policy.demo_app_08.name]
+  token_ttl      = 900
+  token_max_ttl  = 900
+
+  bound_audiences   = ["vault.workload.identity"]
+  bound_claims_type = "glob"
+
+  bound_claims = {
+    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-08:run_phase:*"
+  }
+
+  user_claim = "terraform_full_workspace"
+  role_type  = "jwt"
+}
+
+# Provisioner policy — lets the demo-app-08 workspace manage the GitHub
+# JWT mount (roles, config) + KV mount + identity entities.
 resource "vault_policy" "demo_app_08" {
   name = "demo-app-08-provisioner"
 
   policy = <<-POLICY
-    path "sys/auth" {
+    # GitHub Actions JWT auth mount management
+    path "sys/auth/jwt-github" {
       capabilities = ["read", "sudo"]
     }
-    path "sys/auth/*" {
+    path "sys/auth/jwt-github/*" {
       capabilities = ["create", "read", "update", "delete", "sudo"]
     }
-    path "sys/mounts" {
-      capabilities = ["read"]
-    }
-    path "sys/mounts/auth/*" {
-      capabilities = ["read", "sudo"]
-    }
-
-    # JWT auth method — agent runtime authentication
-    path "auth/jwt/*" {
+    path "auth/jwt-github/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
-    # Vault provider v5 constructs auth/auth/jwt/config when namespace is
-    # set via environment — allow both path forms to be safe
-    path "auth/auth/jwt/*" {
+    path "auth/auth/jwt-github/*" {
       capabilities = ["create", "read", "update", "delete", "list"]
     }
 
-    # Database secrets engine — dynamic Postgres credentials (app-scoped mount)
-    path "sys/mounts/app08/database" {
+    # KV-v2 demo secrets mount
+    path "sys/mounts/app08/kv" {
       capabilities = ["create", "read", "update", "delete"]
     }
-    path "sys/mounts/app08/database/*" {
+    path "sys/mounts/app08/kv/*" {
       capabilities = ["create", "read", "update", "delete"]
     }
-    path "app08/database/*" {
-      capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+    path "app08/kv/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
     }
 
     # Identity — Agent Registry entity and alias management
@@ -494,24 +517,6 @@ resource "vault_policy" "demo_app_08" {
       capabilities = ["create", "read", "update", "delete"]
     }
   POLICY
-}
-
-resource "vault_jwt_auth_backend_role" "demo_app_08" {
-  backend        = data.vault_auth_backend.jwt.path
-  role_name      = "demo-app-08"
-  token_policies = [vault_policy.demo_app_08.name]
-  token_ttl      = 900 # 15 minutes — one run window
-  token_max_ttl  = 900
-
-  bound_audiences   = ["vault.workload.identity"]
-  bound_claims_type = "glob"
-
-  bound_claims = {
-    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-08:run_phase:*"
-  }
-
-  user_claim = "terraform_full_workspace"
-  role_type  = "jwt"
 }
 
 resource "vault_jwt_auth_backend_role" "demo_app_07" {
