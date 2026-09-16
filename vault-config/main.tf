@@ -23,6 +23,74 @@ data "vault_auth_backend" "jwt" {
   path = "jwt"
 }
 
+# ── vault-config provisioner policy (self-updating) ───────────────────────────
+# Uses vault_generic_endpoint (write-only, no plan-phase read) so the token
+# can update its own policy via the sys/policies/acl/demo-app-* wildcard.
+# The full policy content mirrors the existing bootstrapped policy plus the
+# auth/jwt-github/* paths needed for app-08.
+resource "vault_generic_endpoint" "vault_config_provisioner_policy" {
+  path                 = "sys/policies/acl/demo-apps-vault-config-provisioner"
+  ignore_absent_fields = true
+  disable_read         = true
+
+  data_json = jsonencode({
+    policy = <<-POLICY
+      # KV v2 mounts for all demo apps
+      path "sys/mounts/apps/*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+      path "sys/mounts" {
+        capabilities = ["read"]
+      }
+
+      # Manage auth methods
+      path "sys/auth" {
+        capabilities = ["read", "sudo"]
+      }
+      path "sys/auth/*" {
+        capabilities = ["create", "read", "update", "delete", "sudo"]
+      }
+      path "sys/mounts/auth/*" {
+        capabilities = ["read"]
+      }
+
+      # AWS auth backend + client config + all roles
+      path "auth/aws" {
+        capabilities = ["read"]
+      }
+      path "auth/aws/*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+
+      # JWT roles for all app workspaces (HCP Terraform)
+      path "auth/jwt/role/demo-app-*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+
+      # GitHub Actions JWT auth mount (app-08 agentic demo)
+      path "auth/jwt-github/*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+      path "auth/auth/jwt-github/*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+
+      # ACL policies for all app workspaces
+      path "sys/policies/acl/demo-app-*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+      path "sys/policies/acl/hello-*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+
+      # Secrets in all app KV mounts
+      path "apps/*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+    POLICY
+  })
+}
+
 # ── AWS auth backend (singleton — shared by all EC2 app workspaces) ──────────
 # Owned here so individual app workspaces don't race to create it.
 # App workspaces reference it via data "vault_auth_backend" "aws" in the
