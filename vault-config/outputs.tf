@@ -1,3 +1,8 @@
+output "jwt_github_accessor" {
+  description = "Accessor of the jwt-github auth mount. Set as jwt_github_accessor in the demo-app-08 variable set to enable Agent Registry entity alias."
+  value       = vault_auth_backend.jwt_github.accessor
+}
+
 output "jwt_role_names" {
   description = "Map of app name to Vault JWT role name. Use to verify role provisioning."
   value = {

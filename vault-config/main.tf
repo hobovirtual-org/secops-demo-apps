@@ -489,22 +489,35 @@ resource "vault_policy" "demo_app_07" {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App 08 — vault-agentic-auth (GitHub Actions agent)
-#
-# jwt-github auth mount bootstrap (one-time, run once by an operator):
-#   vault auth enable -path=jwt-github jwt
-#   vault write auth/jwt-github/config \
-#     oidc_discovery_url="https://token.actions.githubusercontent.com" \
-#     bound_issuer="https://token.actions.githubusercontent.com"
-#
-# auth/jwt cannot be reused — its bound_issuer is app.terraform.io which
-# rejects GitHub JWTs at the mount level. jwt-github is a separate mount
-# with a separate trust anchor, bootstrapped the same way auth/jwt was.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Enable the jwt-github auth mount using vault_auth_backend (reads sys/auth/*
+# only — no auth/<path>/config read needed, so no policy ordering issue).
+resource "vault_auth_backend" "jwt_github" {
+  type        = "jwt"
+  path        = "jwt-github"
+  description = "JWT auth for GitHub Actions OIDC (app-08 agentic demo)"
+}
+
+# Configure the mount (oidc_discovery_url + bound_issuer) via generic endpoint.
+# vault_jwt_auth_backend would also work but reads /config on every plan,
+# requiring auth/jwt-github/* in the policy before the mount exists.
+resource "vault_generic_endpoint" "jwt_github_config" {
+  path                 = "auth/jwt-github/config"
+  ignore_absent_fields = true
+
+  data_json = jsonencode({
+    oidc_discovery_url = "https://token.actions.githubusercontent.com"
+    bound_issuer       = "https://token.actions.githubusercontent.com"
+  })
+
+  depends_on = [vault_auth_backend.jwt_github]
+}
 
 # HCP Terraform provisioner role — lets the demo-app-08 workspace manage
 # roles and resources inside the jwt-github mount.
 resource "vault_jwt_auth_backend_role" "demo_app_08" {
-  backend        = "jwt-github"
+  backend        = vault_auth_backend.jwt_github.path
   role_name      = "demo-app-08"
   token_policies = [vault_policy.demo_app_08.name]
   token_ttl      = 900
