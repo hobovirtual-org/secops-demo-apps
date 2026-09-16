@@ -516,22 +516,24 @@ resource "vault_generic_endpoint" "jwt_github_config" {
 
 # HCP Terraform provisioner role — lets the demo-app-08 workspace manage
 # roles and resources inside the jwt-github mount.
-resource "vault_jwt_auth_backend_role" "demo_app_08" {
-  backend        = vault_auth_backend.jwt_github.path
-  role_name      = "demo-app-08"
-  token_policies = [vault_policy.demo_app_08.name]
-  token_ttl      = 900
-  token_max_ttl  = 900
+# vault_jwt_auth_backend_role also reads auth/<path>/config on plan — use
+# vault_generic_endpoint to avoid the same policy-ordering 403.
+resource "vault_generic_endpoint" "jwt_github_role_demo_app_08" {
+  path                 = "auth/jwt-github/role/demo-app-08"
+  ignore_absent_fields = true
 
-  bound_audiences   = ["vault.workload.identity"]
-  bound_claims_type = "glob"
+  data_json = jsonencode({
+    role_type         = "jwt"
+    bound_audiences   = ["vault.workload.identity"]
+    bound_claims_type = "glob"
+    bound_claims      = { sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-08:run_phase:*" }
+    user_claim        = "terraform_full_workspace"
+    token_policies    = [vault_policy.demo_app_08.name]
+    token_ttl         = 900
+    token_max_ttl     = 900
+  })
 
-  bound_claims = {
-    sub = "organization:${var.tfc_organization}:project:Security:workspace:demo-app-08:run_phase:*"
-  }
-
-  user_claim = "terraform_full_workspace"
-  role_type  = "jwt"
+  depends_on = [vault_generic_endpoint.jwt_github_config]
 }
 
 # Provisioner policy — lets the demo-app-08 workspace manage the GitHub
