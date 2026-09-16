@@ -23,60 +23,6 @@ data "vault_auth_backend" "jwt" {
   path = "jwt"
 }
 
-# ── vault-config self-managed provisioner policy ──────────────────────────────
-# Manages its own policy so jwt-github and future mounts never need CLI updates.
-# The bootstrap token (created once via CLI) must have sys/policies/acl/* write.
-resource "vault_policy" "vault_config_provisioner" {
-  name = "demo-apps-vault-config-provisioner"
-
-  policy = <<-POLICY
-    # Auth backend management — enable/configure/disable auth methods
-    path "sys/auth" {
-      capabilities = ["read", "sudo"]
-    }
-    path "sys/auth/*" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-
-    # Secrets engine management
-    path "sys/mounts" {
-      capabilities = ["read"]
-    }
-    path "sys/mounts/*" {
-      capabilities = ["create", "read", "update", "delete", "sudo"]
-    }
-
-    # Policy management — includes writing this policy itself
-    path "sys/policies/acl/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-
-    # HCP Terraform JWT auth (existing mount, read-only)
-    path "auth/jwt/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-
-    # AWS IAM auth
-    path "auth/aws/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-
-    # GitHub Actions JWT auth mount
-    path "auth/jwt-github/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-    # Vault provider v5 namespace double-prefix workaround
-    path "auth/auth/jwt-github/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-
-    # Identity — entity and alias management (for Agent Registry)
-    path "identity/*" {
-      capabilities = ["create", "read", "update", "delete", "list"]
-    }
-  POLICY
-}
-
 # ── AWS auth backend (singleton — shared by all EC2 app workspaces) ──────────
 # Owned here so individual app workspaces don't race to create it.
 # App workspaces reference it via data "vault_auth_backend" "aws" in the
@@ -497,6 +443,11 @@ resource "vault_auth_backend" "jwt_github" {
   type        = "jwt"
   path        = "jwt-github"
   description = "JWT auth for GitHub Actions OIDC (app-08 agentic demo)"
+}
+
+import {
+  to = vault_auth_backend.jwt_github
+  id = "jwt-github"
 }
 
 # Configure the mount (oidc_discovery_url + bound_issuer) via generic endpoint.
