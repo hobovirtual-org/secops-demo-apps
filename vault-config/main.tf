@@ -489,22 +489,22 @@ resource "vault_policy" "demo_app_07" {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App 08 — vault-agentic-auth (GitHub Actions agent)
+#
+# jwt-github auth mount bootstrap (one-time, run once by an operator):
+#   vault auth enable -path=jwt-github jwt
+#   vault write auth/jwt-github/config \
+#     oidc_discovery_url="https://token.actions.githubusercontent.com" \
+#     bound_issuer="https://token.actions.githubusercontent.com"
+#
+# auth/jwt cannot be reused — its bound_issuer is app.terraform.io which
+# rejects GitHub JWTs at the mount level. jwt-github is a separate mount
+# with a separate trust anchor, bootstrapped the same way auth/jwt was.
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Dedicated JWT auth mount trusting GitHub Actions OIDC.
-# Kept separate from auth/jwt (HCP Terraform) so trust anchors are isolated.
-resource "vault_jwt_auth_backend" "github" {
-  path               = "jwt-github"
-  type               = "jwt"
-  description        = "JWT auth for GitHub Actions OIDC (app-08 agentic demo)"
-  oidc_discovery_url = "https://token.actions.githubusercontent.com"
-  bound_issuer       = "https://token.actions.githubusercontent.com"
-}
 
 # HCP Terraform provisioner role — lets the demo-app-08 workspace manage
 # roles and resources inside the jwt-github mount.
 resource "vault_jwt_auth_backend_role" "demo_app_08" {
-  backend        = vault_jwt_auth_backend.github.path
+  backend        = "jwt-github"
   role_name      = "demo-app-08"
   token_policies = [vault_policy.demo_app_08.name]
   token_ttl      = 900
